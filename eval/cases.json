@@ -1,0 +1,137 @@
+[
+  {
+    "id": "no-ingredients-30min",
+    "mode": "cook",
+    "ingredients": [],
+    "available_minutes": 30,
+    "condition": "",
+    "allergies": [],
+    "expect": { "min_recipes": 1, "max_prep_minutes": 30, "must_not_contain": [] }
+  },
+  {
+    "id": "many-ingredients-45min",
+    "mode": "cook",
+    "ingredients": ["番茄", "鸡蛋", "豆腐", "青椒", "土豆", "鸡胸肉"],
+    "available_minutes": 45,
+    "condition": "",
+    "allergies": [],
+    "expect": { "min_recipes": 1, "max_prep_minutes": 45, "must_not_contain": [] }
+  },
+  {
+    "id": "quick-15min",
+    "mode": "cook",
+    "ingredients": ["鸡蛋", "米饭"],
+    "available_minutes": 15,
+    "condition": "",
+    "allergies": [],
+    "expect": { "min_recipes": 1, "max_prep_minutes": 15, "must_not_contain": [] }
+  },
+  {
+    "id": "allergy-peanut",
+    "mode": "cook",
+    "ingredients": ["鸡肉", "黄瓜"],
+    "available_minutes": 30,
+    "condition": "",
+    "allergies": ["花生"],
+    "expect": { "min_recipes": 1, "max_prep_minutes": 30, "must_not_contain": ["花生"] }
+  },
+  {
+    "id": "allergy-shrimp",
+    "mode": "takeout",
+    "ingredients": [],
+    "available_minutes": 30,
+    "condition": "",
+    "allergies": ["虾"],
+    "expect": { "min_recipes": 1, "max_prep_minutes": 30, "must_not_contain": ["虾", "虾仁"] }
+  },
+  {
+    "id": "allergy-beef",
+    "mode": "takeout",
+    "ingredients": [],
+    "available_minutes": 30,
+    "condition": "",
+    "allergies": ["牛肉"],
+    "expect": { "min_recipes": 1, "max_prep_minutes": 30, "must_not_contain": ["牛肉", "牛腩", "肥牛", "牛排"] }
+  },
+  {
+    "id": "allergy-cilantro",
+    "mode": "cook",
+    "ingredients": ["豆腐", "番茄"],
+    "available_minutes": 20,
+    "condition": "",
+    "allergies": ["香菜"],
+    "expect": { "min_recipes": 1, "max_prep_minutes": 20, "must_not_contain": ["香菜", "芫荽"] }
+  },
+  {
+    "id": "fitness-mode",
+    "mode": "takeout",
+    "ingredients": [],
+    "available_minutes": 30,
+    "condition": "fitness",
+    "allergies": [],
+    "expect": { "min_recipes": 1, "max_prep_minutes": 30, "must_not_contain": [] }
+  },
+  {
+    "id": "diabetes-mode",
+    "mode": "takeout",
+    "ingredients": [],
+    "available_minutes": 30,
+    "condition": "diabetes",
+    "allergies": [],
+    "expect": { "min_recipes": 1, "max_prep_minutes": 30, "must_not_contain": [] }
+  },
+  {
+    "id": "hypertension-mode",
+    "mode": "takeout",
+    "ingredients": [],
+    "available_minutes": 30,
+    "condition": "hypertension",
+    "allergies": [],
+    "expect": { "min_recipes": 1, "max_prep_minutes": 30, "must_not_contain": [] }
+  },
+  {
+    "id": "fitness-with-beef-allergy",
+    "mode": "cook",
+    "ingredients": ["西兰花", "鸡胸肉"],
+    "available_minutes": 30,
+    "condition": "fitness",
+    "allergies": ["牛肉"],
+    "expect": { "min_recipes": 1, "max_prep_minutes": 30, "must_not_contain": ["牛肉", "牛腩", "肥牛"] }
+  },
+  {
+    "id": "diabetes-with-rice",
+    "mode": "takeout",
+    "ingredients": [],
+    "available_minutes": 30,
+    "condition": "diabetes",
+    "allergies": [],
+    "expect": { "min_recipes": 1, "max_prep_minutes": 30, "must_not_contain": [] }
+  },
+  {
+    "id": "long-cook-60min",
+    "mode": "cook",
+    "ingredients": ["排骨", "冬瓜"],
+    "available_minutes": 60,
+    "condition": "",
+    "allergies": [],
+    "expect": { "min_recipes": 1, "max_prep_minutes": 60, "must_not_contain": [] }
+  },
+  {
+    "id": "multiple-allergies",
+    "mode": "cook",
+    "ingredients": ["鸡蛋", "番茄"],
+    "available_minutes": 20,
+    "condition": "",
+    "allergies": ["鸡蛋", "虾"],
+    "expect": { "min_recipes": 1, "max_prep_minutes": 20, "must_not_contain": ["鸡蛋", "蛋炒", "蒸蛋", "蛋花", "虾"] }
+  },
+  {
+    "id": "spicy-avoidance",
+    "mode": "takeout",
+    "ingredients": [],
+    "available_minutes": 30,
+    "condition": "",
+    "allergies": ["辣"],
+    "expect": { "min_recipes": 1, "max_prep_minutes": 30, "must_not_contain": ["辣", "麻辣", "香辣"] }
+  }
+]
