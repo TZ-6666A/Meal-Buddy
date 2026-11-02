@@ -133,5 +133,81 @@
     "condition": "",
     "allergies": ["辣"],
     "expect": { "min_recipes": 1, "max_prep_minutes": 30, "must_not_contain": ["辣", "麻辣", "香辣"] }
+  },
+  {
+    "id": "avoid-pork-60min",
+    "mode": "cook",
+    "ingredients": [],
+    "available_minutes": 60,
+    "condition": "",
+    "allergies": [],
+    "avoid": ["猪肉"],
+    "expect": { "min_recipes": 1, "max_prep_minutes": 60, "must_not_contain": ["猪", "排骨", "五花", "肉丝", "叉烧"] }
+  },
+  {
+    "id": "avoid-garlic-30min",
+    "mode": "cook",
+    "ingredients": [],
+    "available_minutes": 30,
+    "condition": "",
+    "allergies": [],
+    "avoid": ["蒜"],
+    "expect": { "min_recipes": 1, "max_prep_minutes": 30, "must_not_contain": ["蒜"] }
+  },
+  {
+    "id": "avoid-spicy-takeout",
+    "mode": "takeout",
+    "ingredients": [],
+    "available_minutes": 30,
+    "condition": "",
+    "allergies": [],
+    "avoid": ["辣"],
+    "expect": { "min_recipes": 1, "max_prep_minutes": 30, "must_not_contain": ["辣", "麻辣", "香辣", "水煮", "剁椒"] }
+  },
+  {
+    "id": "allergy-shellfish-avoid-pork",
+    "mode": "cook",
+    "ingredients": [],
+    "available_minutes": 60,
+    "condition": "",
+    "allergies": ["海鲜"],
+    "avoid": ["猪肉"],
+    "expect": { "min_recipes": 1, "max_prep_minutes": 60, "must_not_contain": ["虾", "蟹", "贝", "鱿鱼", "猪", "排骨", "肉丝"] }
+  },
+  {
+    "id": "ingredient-tomato-egg-30",
+    "mode": "cook",
+    "ingredients": ["番茄", "鸡蛋"],
+    "available_minutes": 30,
+    "condition": "",
+    "allergies": [],
+    "expect": { "min_recipes": 1, "max_prep_minutes": 30, "must_not_contain": [], "ingredients_any": ["番茄", "鸡蛋"] }
+  },
+  {
+    "id": "ingredient-tofu-20",
+    "mode": "cook",
+    "ingredients": ["豆腐"],
+    "available_minutes": 20,
+    "condition": "",
+    "allergies": [],
+    "expect": { "min_recipes": 1, "max_prep_minutes": 20, "must_not_contain": [], "ingredients_any": ["豆腐"] }
+  },
+  {
+    "id": "time-15min-with-ingredient",
+    "mode": "cook",
+    "ingredients": ["番茄"],
+    "available_minutes": 15,
+    "condition": "",
+    "allergies": [],
+    "expect": { "min_recipes": 1, "max_prep_minutes": 15, "must_not_contain": [], "ingredients_any": ["番茄"] }
+  },
+  {
+    "id": "no-suitable-result",
+    "mode": "cook",
+    "ingredients": [],
+    "available_minutes": 60,
+    "condition": "",
+    "allergies": ["蛋", "肉", "菜", "菇", "虾", "豆腐", "汤", "瓜", "蒜", "鸡", "鱼", "牛", "排骨", "土豆", "西兰花", "包菜", "油麦菜", "番茄", "西红柿", "青椒"],
+    "expect": { "no_result": true, "min_recipes": 0, "must_not_contain": [] }
   }
 ]

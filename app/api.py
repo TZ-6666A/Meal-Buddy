@@ -1,8 +1,9 @@
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+import time
+from datetime import date, datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.orm import Session
@@ -25,6 +26,7 @@ from app.schemas import (
     DecisionOption,
     DecisionState,
     DeleteDataRequest,
+    GeoPoint,
     MealCreate,
     MealRead,
     FeedbackCreate,
@@ -36,16 +38,22 @@ from app.schemas import (
     PruneRequest,
     RecommendationRequest,
     RecommendationResponse,
+    CookLesson,
+    CookLessonRequest,
 )
-from app.services import decision, usage
+from app.services import decision, nearby, nutrition, usage, watch
+from app.services.nearby import NearbyError
 from app.services.meal_assistant import MAX_HISTORY_MESSAGES, DietAgent, summarize_older_history
+from app.services.cook_teacher import CookTeacher
 from app.rate_limit import limit_model_calls
+from app.security import client_host, require_sensitive_access
 
 logger = logging.getLogger("fandazi.api")
 
 router = APIRouter(prefix="/api/v1")
 public_router = APIRouter(prefix="/api/v1")
 agent = DietAgent()
+cook_teacher = CookTeacher()
 
 MAX_DRAWS = decision.MAX_DRAWS
 
@@ -184,6 +192,21 @@ def health(db: Session = Depends(get_db)) -> dict[str, str]:
     return {"status": "ok", "service": "fandazi-api", "database": "ok"}
 
 
+@public_router.get("/watch-cover")
+async def watch_cover(url: str = Query(min_length=1, max_length=2048)) -> Response:
+    try:
+        content, content_type = await watch.fetch_cover(url)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="封面地址无效") from exc
+    except watch.WatchSearchUnavailable as exc:
+        raise HTTPException(status_code=502, detail="封面暂时无法加载") from exc
+    return Response(
+        content=content,
+        media_type=content_type,
+        headers={"Cache-Control": "public, max-age=86400, stale-while-revalidate=604800"},
+    )
+
+
 @router.get("/meals", response_model=list[MealRead])
 def list_meals(
     start: datetime | None = Query(default=None),
@@ -251,6 +274,7 @@ def delete_pantry_item(item_id: int, db: Session = Depends(get_db)) -> None:
 
 
 async def _build_recommendation(payload: RecommendationRequest, db: Session) -> RecommendationResponse:
+    started = time.perf_counter()
     recent = list(db.scalars(select(MealEntry.description).order_by(MealEntry.eaten_at.desc()).limit(10)))
     pantry = list(db.scalars(select(PantryItem.name).order_by(PantryItem.name)))
     notes = _active_notes(db)
@@ -265,10 +289,17 @@ async def _build_recommendation(payload: RecommendationRequest, db: Session) -> 
     if not recipes:
         raise HTTPException(
             status_code=422,
-            detail="按你的忌口没找到合适的菜，换点食材再试试。",
+            detail=explanation or "按你的忌口没找到合适的菜，换点食材再试试。",
         )
+    settings = get_settings()
     return RecommendationResponse(
-        explanation=explanation, recipes=recipes, source=source, prompt_version=PROMPT_VERSION
+        explanation=explanation,
+        recipes=recipes,
+        source=source,
+        prompt_version=PROMPT_VERSION,
+        model=getattr(settings, "openai_model", "") if source == "llm" else "",
+        duration_ms=int((time.perf_counter() - started) * 1000),
+        degraded=source != "llm",
     )
 
 
@@ -346,10 +377,18 @@ def delete_preference(note_id: int, db: Session = Depends(get_db)) -> None:
     db.commit()
 
 
+def _is_silent_memory_message(text: str) -> bool:
+    """纯偏好陈述：只在说喜欢/不喜欢，没有提问，不占用聊天区。"""
+    return bool(DietAgent._rule_extract(text)) and not DietAgent._looks_like_decision_question(text)
+
+
 @router.get("/chat/history", response_model=list[ChatMessageRead])
 def chat_history(db: Session = Depends(get_db)) -> list[ChatMessage]:
     rows = db.scalars(select(ChatMessage).order_by(ChatMessage.id.desc()).limit(40))
-    return list(reversed(list(rows)))
+    return [
+        row for row in reversed(list(rows))
+        if not (row.role == "user" and _is_silent_memory_message(row.content))
+    ]
 
 
 def _chat_context(db: Session, limit: int = MAX_HISTORY_MESSAGES) -> tuple[list[dict[str, str]], str]:
@@ -371,19 +410,59 @@ async def chat(payload: ChatRequest, db: Session = Depends(get_db)) -> ChatReply
     history, earlier_summary = _chat_context(db)
     reply, learned, source = await agent.chat(payload.message, notes, history, earlier_summary)
     created, replaced = _persist_learned(db, learned)
-    if replaced:
-        reply += f"（已更新之前的记录：{'、'.join(replaced[:3])}）"
-    db.add(ChatMessage(role="user", content=payload.message))
-    db.add(ChatMessage(role="agent", content=reply))
+    # 偏好更新只通过「我的口味」和小提示反馈，不写进对话气泡。
+    if reply:
+        db.add(ChatMessage(role="user", content=payload.message))
+        db.add(ChatMessage(role="agent", content=reply))
     db.commit()
     for note in created:
         db.refresh(note)
     return ChatReply(
         reply=reply,
         learned=[PreferenceRead.model_validate(n) for n in created],
+        replaced=replaced[:3],
         source=source,
         prompt_version=PROMPT_VERSION,
     )
+
+
+@router.post("/cook-lessons", response_model=CookLesson,
+             dependencies=[Depends(limit_model_calls)])
+async def cook_lesson(payload: CookLessonRequest, db: Session = Depends(get_db)) -> CookLesson:
+    if _budget_exceeded():
+        raise HTTPException(status_code=429, detail="今天的模型额度用完了，明天再来。")
+    # 只传用户记下的 topic，展开和食材匹配放在服务层，不依赖模型自觉。
+    topics = _blocked_words(db)
+    return await cook_teacher.teach(payload.dish, topics)
+
+
+def _nearby_places(session: DecisionSession) -> list | None:
+    """定位过后返回招牌菜列表。没定位则返回 None，继续用原来的菜库。"""
+    if session.mode != "takeout":
+        return None
+    raw = (session.answers or {}).get("_places")
+    return raw if isinstance(raw, list) else None
+
+
+def _pick_choice(session: DecisionSession, blocked: list[str], drawn: list[str],
+                 recent: list[str], condition: str) -> str:
+    places = _nearby_places(session)
+    if places is None:
+        return decision.draw(
+            session.mode, session.answers or {}, drawn, condition, blocked, recent
+        )
+    answers = session.answers or {}
+    source = _recommendation_source(places, answers, blocked)
+    picked = nearby.choose(places, answers, blocked, drawn, source=source)
+    return picked["choice"] if picked else ""
+
+
+def _recommendation_source(places: list, answers: dict, blocked: list[str]) -> str:
+    selected = answers.get("_recommendation_source")
+    available = nearby.sources_with_matches(places, answers, blocked)
+    if selected in available:
+        return selected
+    return available[0] if available else ""
 
 
 def _state(session: DecisionSession, db: Session, auto_draw: bool = False) -> DecisionState:
@@ -393,12 +472,15 @@ def _state(session: DecisionSession, db: Session, auto_draw: bool = False) -> De
     filter_words = decision.expand_blocked(blocked)
     recent = _recent_meals(db)
     drawn = list(session.drawn or [])
+    location_label = str((session.answers or {}).get("_location_label") or "")
+    location_data_version = int((session.answers or {}).get("_location_data_version") or 0)
+    places = _nearby_places(session)
+    sources = nearby.sources_with_matches(places, session.answers or {}, filter_words) if places is not None else []
+    source = _recommendation_source(places, session.answers or {}, filter_words) if places is not None else ""
     step = decision.next_step(session.mode, session.answers or {})
 
     if step is None and not drawn and auto_draw:
-        choice = decision.draw(
-            session.mode, session.answers or {}, [], session.condition, filter_words, recent
-        )
+        choice = _pick_choice(session, filter_words, [], recent, session.condition)
         if choice:
             drawn = [choice]
             session.drawn = drawn
@@ -406,11 +488,32 @@ def _state(session: DecisionSession, db: Session, auto_draw: bool = False) -> De
             db.refresh(session)
 
     if drawn:
+        if places is None:
+            alts = decision.alternatives(
+                session.mode, session.answers or {}, drawn, session.condition,
+                filter_words, recent, 3, drawn[-1],
+            )
+            reasons = decision.explain(
+                session.mode, session.answers or {}, drawn[-1], session.condition, blocked, recent
+            )
+        else:
+            alts = nearby.alternatives(places, session.answers or {}, filter_words, drawn, 3, source=source)
+            picked = nearby.choose(places, session.answers or {}, filter_words, drawn[:-1], source=source)
+            if picked and picked["choice"] == drawn[-1]:
+                reasons = picked["reasons"]
+            elif source == "local":
+                reasons = ["当地特色菜", "符合你选择的口味"]
+            else:
+                reasons = ["附近餐馆菜品", "是否支持外卖请在商家平台确认"]
         return DecisionState(
             session_id=session.id,
             mode=session.mode,
             step=session.step,
             total_steps=total,
+            location_label=location_label,
+            location_data_version=location_data_version,
+            recommendation_source=source,
+            available_sources=sources,
             condition=session.condition,
             question="",
             options=[],
@@ -419,13 +522,8 @@ def _state(session: DecisionSession, db: Session, auto_draw: bool = False) -> De
             result=decision.result_line(
                 session.mode, session.answers or {}, drawn[-1], session.condition, blocked
             ),
-            alternatives=decision.alternatives(
-                session.mode, session.answers or {}, drawn, session.condition,
-                filter_words, recent, 3, drawn[-1],
-            ),
-            reasons=decision.explain(
-                session.mode, session.answers or {}, drawn[-1], session.condition, blocked, recent
-            ),
+            alternatives=alts,
+            reasons=reasons,
             finished=True,
             note=_note_line(db, blocked),
             suggestion=decision.exhausted_hint(len(drawn), drawn[-1]),
@@ -437,12 +535,16 @@ def _state(session: DecisionSession, db: Session, auto_draw: bool = False) -> De
             mode=session.mode,
             step=session.step,
             total_steps=total,
+            location_label=location_label,
+            location_data_version=location_data_version,
+            recommendation_source=source,
+            available_sources=sources,
             condition=session.condition,
             can_draw=False,
             result="",
             finished=True,
             note=_note_line(db, blocked),
-            suggestion="按你的条件没找到合适的，换个口味或模式试试。",
+            suggestion="这个来源里暂时没有符合条件的菜，换一种口味或主食试试。" if places is not None else "按你的条件没找到合适的，换个口味或模式试试。",
         )
 
     return DecisionState(
@@ -450,6 +552,10 @@ def _state(session: DecisionSession, db: Session, auto_draw: bool = False) -> De
         mode=session.mode,
         step=session.step,
         total_steps=total,
+        location_label=location_label,
+        location_data_version=location_data_version,
+        recommendation_source=source,
+        available_sources=sources,
         condition=session.condition,
         question=step.question,
         options=[DecisionOption(id=key, label=label, hint=hint) for key, label, hint in step.options],
@@ -466,6 +572,14 @@ def _note_line(db: Session, blocked: list[str]) -> str:
     return f"记住你爱吃 {'、'.join(liked[:3])}" if liked else ""
 
 
+@router.get("/decisions/{session_id}", response_model=DecisionState)
+def read_decision(session_id: int, db: Session = Depends(get_db)) -> DecisionState:
+    session = db.get(DecisionSession, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    return _state(session, db)
+
+
 @router.post("/decisions", response_model=DecisionState)
 def start_decision(mode: str = "takeout", condition: str = "", db: Session = Depends(get_db)) -> DecisionState:
     if mode not in ("takeout", "cook"):
@@ -477,6 +591,63 @@ def start_decision(mode: str = "takeout", condition: str = "", db: Session = Dep
     db.commit()
     db.refresh(session)
     return _state(session, db)
+
+
+@router.post("/decisions/{session_id}/location", response_model=DecisionState)
+def save_location(session_id: int, payload: GeoPoint, db: Session = Depends(get_db)) -> DecisionState:
+    session = db.get(DecisionSession, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    if session.mode != "takeout":
+        raise HTTPException(status_code=422, detail="只有出去吃才按附近的店推荐")
+    try:
+        key = get_settings().amap_key
+        places = nearby.fetch_places(payload.lng, payload.lat, key)
+    except NearbyError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    location_label = nearby.fetch_location_label(payload.lng, payload.lat, key)
+    regional_places = nearby.regional_places(location_label)
+    city = (location_label or "").split("·", 1)[0].strip()
+    city_places = nearby.fetch_city_places(city, key) if not places else []
+    answers = dict(session.answers or {})
+    answers["_lat"] = payload.lat
+    answers["_lng"] = payload.lng
+    answers["_location_label"] = location_label
+    answers["_location_data_version"] = nearby.REGIONAL_CATALOG_VERSION
+    nearby_places = city_places + places
+    all_places = regional_places + nearby_places
+    answers["_local_places"] = regional_places
+    answers["_nearby_places"] = nearby_places
+    answers["_places"] = all_places
+    available = nearby.sources_with_matches(all_places, answers, decision.expand_blocked(_blocked_words(db)))
+    answers["_recommendation_source"] = available[0] if available else ("local" if regional_places else "nearby")
+    session.answers = answers
+    session.drawn = []
+    db.commit()
+    db.refresh(session)
+    return _state(session, db, auto_draw=True)
+
+
+@router.post("/decisions/{session_id}/source", response_model=DecisionState)
+def set_decision_source(session_id: int, source: str, db: Session = Depends(get_db)) -> DecisionState:
+    session = db.get(DecisionSession, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    if source not in {"local", "nearby"}:
+        raise HTTPException(status_code=422, detail="推荐来源无效")
+    places = _nearby_places(session)
+    if places is None:
+        raise HTTPException(status_code=409, detail="请先启用位置推荐")
+    blocked = decision.expand_blocked(_blocked_words(db))
+    if source not in nearby.sources_with_matches(places, session.answers or {}, blocked):
+        raise HTTPException(status_code=422, detail="这个来源暂时没有符合你条件的菜")
+    answers = dict(session.answers or {})
+    answers["_recommendation_source"] = source
+    session.answers = answers
+    session.drawn = []
+    db.commit()
+    db.refresh(session)
+    return _state(session, db, auto_draw=True)
 
 
 @router.post("/decisions/{session_id}/answer", response_model=DecisionState)
@@ -530,6 +701,16 @@ def save_recommendation_feedback(
     else:
         feedback.action = payload.action
         feedback.rating = payload.rating
+    if payload.preference:
+        label = "爱吃" if payload.preference == "like" else "不爱吃"
+        _persist_learned(
+            db,
+            [{
+                "kind": payload.preference,
+                "topic": payload.dish_name,
+                "text": f"{label}{payload.dish_name}",
+            }],
+        )
     db.commit()
     db.refresh(feedback)
     return feedback
@@ -562,13 +743,8 @@ def _redraw(session_id: int, db: Session) -> DecisionState:
     drawn = list(session.drawn or [])
     if len(drawn) >= MAX_DRAWS:
         return _state(session, db)
-    choice = decision.draw(
-        session.mode,
-        session.answers or {},
-        drawn,
-        session.condition,
-        decision.expand_blocked(_blocked_words(db)),
-        _recent_meals(db),
+    choice = _pick_choice(
+        session, decision.expand_blocked(_blocked_words(db)), drawn, _recent_meals(db), session.condition
     )
     if not choice:
         return _state(session, db)
@@ -585,14 +761,61 @@ def get_usage() -> dict:
     return usage.snapshot()
 
 
-@router.get("/export")
-def export_data(db: Session = Depends(get_db)) -> dict:
+@router.get("/watch-search")
+async def watch_search(
+    q: str = Query(default="", max_length=80),
+    category: str = Query(
+        default="all",
+        pattern="^(all|动画|动漫|电视剧|电影|电影解说|纪录片|综艺|美剧|短剧|生活)$",
+    ),
+    page: int = Query(default=1, ge=1, le=150),
+    visit_id: str = Query(default="", max_length=80),
+) -> dict:
+    try:
+        return await watch.search_videos(q, category, page, visit_id)
+    except watch.WatchSearchUnavailable as exc:
+        raise HTTPException(status_code=502, detail="哔哩哔哩搜索暂时不可用") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/nutrition-summary")
+def nutrition_summary(
+    period: str = Query(default="day", pattern="^(day|week)$"),
+    date_anchor: date = Query(alias="date"),
+    db: Session = Depends(get_db),
+) -> dict:
+    end = date_anchor + timedelta(days=1 if period == "day" else 7)
+    start_at = datetime.combine(date_anchor, datetime.min.time())
+    end_at = datetime.combine(end, datetime.min.time())
+    entries = list(
+        db.scalars(
+            select(MealEntry)
+            .where(MealEntry.eaten_at >= start_at)
+            .where(MealEntry.eaten_at < end_at)
+            .order_by(MealEntry.eaten_at)
+        )
+    )
+    return nutrition.summarize(entries, period, date_anchor)
+
+
+@router.get("/export", dependencies=[Depends(require_sensitive_access)])
+def export_data(
+    response: Response, request: Request, db: Session = Depends(get_db)
+) -> dict:
     meals = list(db.scalars(select(MealEntry).order_by(MealEntry.eaten_at.desc())))
     pantry = list(db.scalars(select(PantryItem).order_by(PantryItem.name)))
     preferences = list(db.scalars(select(PreferenceNote).order_by(PreferenceNote.id)))
     chats = list(db.scalars(select(ChatMessage).order_by(ChatMessage.id)))
     sessions = list(db.scalars(select(DecisionSession).order_by(DecisionSession.id)))
     feedback = list(db.scalars(select(RecommendationFeedback).order_by(RecommendationFeedback.id)))
+    # 导出内容含全部个人数据，禁止中间层缓存。
+    response.headers["Cache-Control"] = "no-store"
+    logger.info(
+        "data_export client=%s meals=%d pantry=%d preferences=%d chats=%d sessions=%d feedback=%d",
+        client_host(request), len(meals), len(pantry), len(preferences), len(chats),
+        len(sessions), len(feedback),
+    )
     return {
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "meals": [MealRead.model_validate(m).model_dump(mode="json") for m in meals],
@@ -622,8 +845,10 @@ def export_data(db: Session = Depends(get_db)) -> dict:
     }
 
 
-@router.post("/maintenance/prune")
-def prune_old_data(payload: PruneRequest, db: Session = Depends(get_db)) -> dict[str, int]:
+@router.post("/maintenance/prune", dependencies=[Depends(require_sensitive_access)])
+def prune_old_data(
+    payload: PruneRequest, request: Request, db: Session = Depends(get_db)
+) -> dict[str, int]:
     cutoff = datetime.now(timezone.utc) - timedelta(days=payload.days)
     old_sessions = select(DecisionSession.id).where(
         DecisionSession.finished.is_(True), DecisionSession.created_at < cutoff
@@ -638,15 +863,22 @@ def prune_old_data(payload: PruneRequest, db: Session = Depends(get_db)) -> dict
     )
     chat_result = db.execute(delete(ChatMessage).where(ChatMessage.created_at < cutoff))
     db.commit()
-    return {
+    deleted_counts = {
         "chat_messages": chat_result.rowcount or 0,
         "decision_sessions": session_result.rowcount or 0,
         "recommendation_feedback": feedback_result.rowcount or 0,
     }
+    logger.info(
+        "maintenance_prune client=%s days=%d deleted=%s",
+        client_host(request), payload.days, deleted_counts,
+    )
+    return deleted_counts
 
 
-@router.delete("/data")
-def delete_all_data(payload: DeleteDataRequest, db: Session = Depends(get_db)) -> dict:
+@router.delete("/data", dependencies=[Depends(require_sensitive_access)])
+def delete_all_data(
+    payload: DeleteDataRequest, request: Request, db: Session = Depends(get_db)
+) -> dict:
     if payload.confirm != "DELETE":
         raise HTTPException(status_code=400, detail='需要 confirm="DELETE" 才会清空数据')
     deleted: dict[str, int] = {}
@@ -655,5 +887,5 @@ def delete_all_data(payload: DeleteDataRequest, db: Session = Depends(get_db)) -
         result = db.execute(delete(model))
         deleted[model.__tablename__] = result.rowcount or 0
     db.commit()
-    logger.warning("all_data_deleted counts=%s", deleted)
+    logger.warning("all_data_deleted client=%s counts=%s", client_host(request), deleted)
     return {"deleted": deleted}

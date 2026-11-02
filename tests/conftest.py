@@ -25,7 +25,10 @@ def client(tmp_path, monkeypatch):
 
     app.dependency_overrides[get_db] = override_get_db
     # Tests never depend on real .env credentials, tokens, budgets, or model access.
-    monkeypatch.setattr("app.security.get_settings", lambda: SimpleNamespace(api_token=""))
+    monkeypatch.setattr(
+        "app.security.get_settings",
+        lambda: SimpleNamespace(api_token="", is_production=False),
+    )
     monkeypatch.setattr(
         "app.rate_limit.get_settings",
         lambda: SimpleNamespace(rate_limit_per_minute=10),

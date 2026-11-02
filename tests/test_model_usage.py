@@ -36,6 +36,8 @@ def test_invalid_recommendation_json_records_single_failed_call(monkeypatch, fak
     assert snapshot["failed"] == 1
     assert snapshot["prompt_tokens"] == 17
     assert snapshot["completion_tokens"] == 9
+    assert snapshot["last_duration_ms"] >= 0
+    assert snapshot["last_failure"].startswith("recommend:")
 
 
 def test_model_clients_are_reused(monkeypatch, fake_settings):

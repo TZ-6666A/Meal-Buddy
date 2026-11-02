@@ -85,8 +85,12 @@ class RecommendationRequest(BaseModel):
 class RecommendationResponse(BaseModel):
     explanation: str
     recipes: list[Recipe]
+    # source: llm=真实模型；demo=未配置模型；fallback=模型失败后的降级结果
     source: str
     prompt_version: str = ""
+    model: str = ""
+    duration_ms: int = 0
+    degraded: bool = False
 
 
 class PreferenceCreate(BaseModel):
@@ -124,6 +128,43 @@ class PreferenceRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class CookLessonRequest(BaseModel):
+    dish: str = Field(min_length=1, max_length=40)
+
+    @field_validator("dish")
+    @classmethod
+    def strip_dish(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("菜名不能为空")
+        if len(cleaned) > 40:
+            raise ValueError("菜名不能超过 40 字")
+        return cleaned
+
+
+class CookIngredient(BaseModel):
+    name: str
+    amount: str
+    role: str
+
+
+class CookStep(BaseModel):
+    order: int
+    text: str
+    heat: str = ""
+    minutes: str = ""
+    caution: str = ""
+
+
+class CookLesson(BaseModel):
+    dish: str
+    servings: str = "2人份"
+    note: str = ""
+    ingredients: list[CookIngredient]
+    steps: list[CookStep]
+    warnings: list[str] = Field(default_factory=list)
+
+
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
 
@@ -131,6 +172,7 @@ class ChatRequest(BaseModel):
 class ChatReply(BaseModel):
     reply: str
     learned: list[PreferenceRead] = Field(default_factory=list)
+    replaced: list[str] = Field(default_factory=list)
     source: str = "rule"
     prompt_version: str = ""
 
@@ -154,11 +196,20 @@ class DecisionOption(BaseModel):
     hint: str = ""
 
 
+class GeoPoint(BaseModel):
+    lat: float = Field(ge=-90, le=90)
+    lng: float = Field(ge=-180, le=180)
+
+
 class DecisionState(BaseModel):
     session_id: int
     mode: str
     step: int
     total_steps: int = 0
+    location_label: str = ""
+    location_data_version: int = 0
+    recommendation_source: str = ""
+    available_sources: list[str] = Field(default_factory=list)
     condition: str = ""
     question: str = ""
     options: list[DecisionOption] = Field(default_factory=list)
@@ -175,6 +226,7 @@ class DecisionState(BaseModel):
 class FeedbackCreate(BaseModel):
     dish_name: str = Field(min_length=1, max_length=120)
     action: Literal["accept", "reject", "eaten"]
+    preference: Literal["like", "dislike"] | None = None
     rating: int | None = Field(default=None, ge=1, le=5)
 
     @field_validator("dish_name")

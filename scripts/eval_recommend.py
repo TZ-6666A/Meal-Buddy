@@ -19,13 +19,18 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from app.services import decision  # noqa: E402
+from app.services.decision import COOK_DISHES, expand_blocked, prefer_ingredients, ranked  # noqa: E402
 
 CASES = ROOT / "eval" / "cases.json"
+COOK_MINUTES = {name: need for name, _, need, _ in COOK_DISHES}
 
 
 def load_cases() -> list[dict]:
     return json.loads(CASES.read_text(encoding="utf-8"))
+
+
+def case_blocked(case: dict) -> list[str]:
+    return expand_blocked(list(case.get("allergies", [])) + list(case.get("avoid", [])))
 
 
 def check_names(names: list[str], expect: dict) -> list[str]:
@@ -44,12 +49,32 @@ def run_offline(cases: list[dict]) -> list[tuple[str, bool, str, float]]:
     for case in cases:
         started = time.perf_counter()
         mode = case.get("mode", "cook")
-        answers = {"time": str(case["available_minutes"]), "style": ""} if mode == "cook" else {}
-        ranking = decision.ranked(
-            mode, answers, case.get("condition", ""), case.get("allergies", []), []
-        )
-        names = [name for name, _ in ranking]
-        errors = check_names(names, case["expect"])
+        minutes = case["available_minutes"]
+        answers = {"time": str(minutes), "style": ""} if mode == "cook" else {}
+        blocked = case_blocked(case)
+        ranking = ranked(mode, answers, case.get("condition", ""), blocked, [])
+        expect = case["expect"]
+        errors: list[str] = []
+
+        if expect.get("no_result"):
+            if ranking:
+                errors.append(f"期望无合适结果，实际有 {len(ranking)} 道")
+        else:
+            ingredients = case.get("ingredients", [])
+            if mode == "cook" and ingredients:
+                ranking = prefer_ingredients(ranking, ingredients)
+            names = [name for name, _ in ranking]
+            errors.extend(check_names(names, expect))
+
+            if mode == "cook" and names:
+                over = [name for name in names if COOK_MINUTES.get(name, 0) > minutes]
+                if over:
+                    errors.append(f"超出 {minutes} 分钟：{'、'.join(over[:3])}")
+
+            wanted = expect.get("ingredients_any") or []
+            if wanted and names and not any(word in names[0] for word in wanted):
+                errors.append(f"首选「{names[0]}」没用上提供的食材：{'、'.join(wanted)}")
+
         results.append((case["id"], not errors, "；".join(errors), time.perf_counter() - started))
     return results
 

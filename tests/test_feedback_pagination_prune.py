@@ -26,9 +26,37 @@ def test_feedback_rejects_unknown_dish_and_updates_duplicate(client):
     assert first.status_code == 200
     assert second.status_code == 200
     assert second.json()["action"] == "reject"
+    assert client.get("/api/v1/preferences").json() == []
     with client.testing_session() as db:
         from app.models import RecommendationFeedback
         assert db.query(RecommendationFeedback).count() == 1
+
+
+def test_explicit_dish_reactions_are_saved_to_taste(client):
+    with client.testing_session() as db:
+        session = DecisionSession(
+            mode="takeout", drawn=["红烧茄子", "番茄炒蛋"], finished=True
+        )
+        db.add(session)
+        db.commit()
+        session_id = session.id
+
+    url = f"/api/v1/decisions/{session_id}/feedback"
+    liked = client.post(
+        url,
+        json={"dish_name": "红烧茄子", "action": "accept", "preference": "like"},
+    )
+    disliked = client.post(
+        url,
+        json={"dish_name": "番茄炒蛋", "action": "reject", "preference": "dislike"},
+    )
+
+    assert liked.status_code == 200
+    assert disliked.status_code == 200
+    assert {(item["kind"], item["topic"]) for item in client.get("/api/v1/preferences").json()} == {
+        ("like", "红烧茄子"),
+        ("dislike", "番茄炒蛋"),
+    }
 
 
 def test_meal_pagination_caps_limit_and_offset_past_end(client):

@@ -93,7 +93,7 @@ BLOCK_ALIASES: dict[str, tuple[str, ...]] = {
     "辣": ("辣", "麻辣", "香辣", "酸辣", "水煮", "剁椒", "泡椒", "椒麻", "藤椒"),
     "香菜": ("香菜", "芫荽"),
     "花生": ("花生", "花生米", "花生酱"),
-    "鸡蛋": ("鸡蛋", "蛋炒", "蒸蛋", "蛋花", "蛋饺", "卤蛋", "煎蛋", "蛋饼"),
+    "鸡蛋": ("鸡蛋", "蛋", "炒蛋", "蒸蛋", "蛋花", "蛋饺", "卤蛋", "煎蛋", "蛋饼"),
     "牛奶": ("牛奶", "芝士", "奶油", "黄油", "奶盖", "酸奶"),
     "葱": ("葱", "葱花", "洋葱"),
     "蒜": ("蒜", "蒜蓉", "蒜香"),
@@ -385,6 +385,24 @@ def candidates(mode: str, answers: dict[str, str], condition: str,
     return [name for name, _ in ranked(mode, answers, condition, blocked, recent)]
 
 
+def prefer_ingredients(
+    ranking: list[tuple[str, int]], ingredients: list[str] | None
+) -> list[tuple[str, int]]:
+    """有食材时，把名字能对上的菜排到前面；对不上就保持原排序。
+
+    只调整顺序，不删除候选：用户手里的食材不一定覆盖整道菜。
+    """
+    words = [name.strip() for name in (ingredients or []) if name and name.strip()]
+    if not words or not ranking:
+        return ranking
+    matched = [
+        item for item in ranking
+        if any(word in item[0] or item[0] in word for word in words)
+    ]
+    rest = [item for item in ranking if item not in matched]
+    return matched + rest
+
+
 def draw(mode: str, answers: dict[str, str], drawn: list[str], condition: str,
          blocked: list[str] | None = None, recent: list[str] | None = None) -> str:
     """只在当前最高分档里抽；这一档抽完了自然退到下一档，忌口全程生效。"""
@@ -512,5 +530,5 @@ def exhausted_hint(draws: int, last: str = "") -> str:
     prefix = f"上一次抽到「{last}」，但显然不是你想要的。" if last else ""
     return (
         f"{prefix}已经抽了 {draws} 次，可能你现在不是真的饿。"
-        "可以先喝杯水、歇一会儿，过一两个小时再决定。"
+        "可以先喝杯水、歇一会儿，过一会再决定。"
     )

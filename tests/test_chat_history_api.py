@@ -52,3 +52,23 @@ def test_chat_context_keeps_six_recent_messages_and_summarizes_older(client, mon
     assert [m["content"] for m in model_messages[-7:-1]] == [
         item["content"] for item in captured["history"]
     ]
+
+
+def test_preference_statement_is_remembered_but_not_shown_in_history(client):
+    response = client.post("/api/v1/chat", json={"message": "我不太喜欢吃香菜"})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["reply"] == ""
+    assert [(item["kind"], item["topic"]) for item in data["learned"]] == [("dislike", "香菜")]
+    assert client.get("/api/v1/preferences").json()
+    assert client.get("/api/v1/chat/history").json() == []
+
+
+def test_question_still_gets_a_reply_and_shows_in_history(client):
+    response = client.post("/api/v1/chat", json={"message": "今天吃什么"})
+
+    assert response.status_code == 200
+    assert response.json()["reply"]
+    contents = [m["content"] for m in client.get("/api/v1/chat/history").json()]
+    assert "今天吃什么" in contents

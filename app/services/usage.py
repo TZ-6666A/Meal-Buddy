@@ -17,6 +17,8 @@ _state: dict = {
     "prompt_tokens": 0,
     "completion_tokens": 0,
     "cost": 0.0,
+    "last_duration_ms": 0,
+    "last_failure": "",
 }
 
 
@@ -27,7 +29,7 @@ def _today() -> str:
 def _roll() -> None:
     if _state["day"] != _today():
         _state.update(day=_today(), calls=0, failed=0, prompt_tokens=0,
-                      completion_tokens=0, cost=0.0)
+                      completion_tokens=0, cost=0.0, last_duration_ms=0, last_failure="")
 
 
 def record_usage(
@@ -39,18 +41,30 @@ def record_usage(
     ok: bool = True,
     price_in: float = 0.0,
     price_out: float = 0.0,
+    duration_ms: int = 0,
+    prompt_version: str = "",
+    failure_reason: str = "",
 ) -> None:
+    """记录一次模型调用。
+
+    只记录模型名、提示词版本、耗时、token 和失败类型；
+    不记录密钥、完整提示词或用户原文。
+    """
     _roll()
     cost = prompt_tokens / 1000 * price_in + completion_tokens / 1000 * price_out
     _state["calls"] += 1
+    _state["last_duration_ms"] = duration_ms
     if not ok:
         _state["failed"] += 1
+        _state["last_failure"] = f"{endpoint}:{failure_reason or 'unknown'}"[:120]
     _state["prompt_tokens"] += prompt_tokens
     _state["completion_tokens"] += completion_tokens
     _state["cost"] += cost
     logger.info(
-        "llm_usage endpoint=%s model=%s ok=%s prompt_tokens=%d completion_tokens=%d cost=%.6f",
-        endpoint, model, ok, prompt_tokens, completion_tokens, cost,
+        "llm_usage endpoint=%s model=%s prompt_version=%s ok=%s duration_ms=%d "
+        "prompt_tokens=%d completion_tokens=%d cost=%.6f failure=%s",
+        endpoint, model, prompt_version, ok, duration_ms,
+        prompt_tokens, completion_tokens, cost, failure_reason or "-",
     )
 
 
@@ -69,10 +83,12 @@ def snapshot() -> dict:
         "completion_tokens": _state["completion_tokens"],
         "total_tokens": _state["prompt_tokens"] + _state["completion_tokens"],
         "estimated_cost": round(_state["cost"], 6),
+        "last_duration_ms": _state["last_duration_ms"],
+        "last_failure": _state["last_failure"],
     }
 
 
 def reset() -> None:
     """测试用。"""
     _state.update(day=_today(), calls=0, failed=0, prompt_tokens=0,
-                  completion_tokens=0, cost=0.0)
+                  completion_tokens=0, cost=0.0, last_duration_ms=0, last_failure="")
