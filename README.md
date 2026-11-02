@@ -37,6 +37,28 @@ AMAP_KEY=你的高德Web服务Key
 
 `/docs` and `/openapi.json` remain public for local development. Anyone who can reach them can inspect the API contract; do not expose them to an untrusted network.
 
+## Docker 部署（Ubuntu 服务器）
+
+服务器需安装 Docker Engine 和 Docker Compose 插件。将仓库克隆到服务器后，在项目根目录创建 `.env`，至少设置：
+
+```dotenv
+APP_ENV=production
+POSTGRES_PASSWORD=使用 openssl rand -hex 32 生成的随机值
+API_TOKEN=至少 16 个字符的随机值
+OPENAI_API_KEY=你的模型服务密钥
+```
+
+`.env` 只放服务器，不要提交 Git。首次部署执行：
+
+```bash
+docker compose up -d db
+docker compose run --rm app alembic upgrade head
+docker compose up -d --build app
+docker compose ps
+```
+
+应用监听服务器 TCP 8000 端口，可先用 `http://服务器公网IP:8000` 验证；在云防火墙中只开放需要的端口。对公网长期使用时应配置域名和 HTTPS 反向代理。PostgreSQL 数据保存在 Docker 命名卷 `postgres_data`，更新应用时运行 `git pull` 后执行 `docker compose up -d --build app`。不要删除该数据卷。
+
 ## 数据库迁移
 
 表结构由 Alembic 管理，应用启动时只检查表是否存在，不再隐式建表。完整流程（备份 / 升级 / 回滚 / 测试库）见 [`docs/migrations.md`](docs/migrations.md)。

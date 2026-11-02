@@ -1,0 +1,12 @@
+.git
+.venv
+__pycache__
+*.py[cod]
+.env
+.pytest_cache
+.ruff_cache
+shots
+eval/*.tmp
+eval/*.out
+eval/*.jsonl
+eval/*.csv
