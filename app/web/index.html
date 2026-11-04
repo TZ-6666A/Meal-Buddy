@@ -82,6 +82,7 @@
 
   /* ---------- status ---------- */
   .status{min-height:0;margin:var(--s3) 0 0;padding:0 var(--s1);font-size:var(--fs-meta);color:var(--muted)}
+  .retry-link{border:0;background:none;padding:0;margin-left:2px;color:var(--brand);font:inherit;font-weight:600;text-decoration:underline;text-underline-offset:2px;cursor:pointer}
   .status:empty{display:none}
   .status.error{color:var(--danger)}
 
@@ -455,11 +456,6 @@
     color:var(--muted);font-size:var(--fs-meta);width:100%}
   .result-box{margin-top:var(--s2)}
   .result-card{padding:var(--s4);border-radius:var(--r-card);background:var(--brand-soft);color:var(--ink-soft);font-size:var(--fs-body);line-height:1.65}
-  .source-switch{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;margin-bottom:var(--s3);padding:4px;border-radius:10px;background:var(--sunken)}
-  .source-switch[hidden]{display:none}
-  .source-choice{min-height:38px;padding:7px 10px;border-radius:7px;color:var(--muted);font-size:var(--fs-meta)}
-  .source-choice[aria-pressed="true"]{background:var(--surface);color:var(--brand);font-weight:650;box-shadow:0 1px 3px #14251c12}
-  .source-note{margin:7px 0 0;color:var(--faint);font-size:var(--fs-micro);line-height:1.55}
   .result-top{display:flex;align-items:baseline;justify-content:space-between;gap:var(--s2);margin-bottom:6px}
   .result-card b{font-size:var(--fs-title);color:var(--brand);font-weight:700}
   .turn{font-size:var(--fs-micro);color:var(--faint);font-variant-numeric:tabular-nums}
@@ -472,6 +468,12 @@
   .alt{display:inline-flex;margin:0 6px 6px 0;padding:6px 11px;border-radius:var(--r-pill);
     border:1px solid var(--line);background:var(--surface);color:var(--ink-soft);font-size:var(--fs-meta);transition:.15s}
   .alt:hover{border-color:var(--brand);color:var(--brand)}
+  .takeout-row{display:flex;align-items:center;gap:var(--s2);flex-wrap:wrap;margin-top:var(--s3)}
+  .takeout-label{font-size:var(--fs-meta);color:var(--muted)}
+  .takeout-btn{display:inline-flex;align-items:center;gap:5px;padding:7px 13px;border-radius:var(--r-pill);
+    border:1px solid var(--line);background:var(--surface);color:var(--ink-soft);font-size:var(--fs-meta);
+    font-weight:600;text-decoration:none;transition:.15s}
+  .takeout-btn:hover{border-color:var(--brand);color:var(--brand);background:var(--brand-soft)}
   .again{margin-top:var(--s2);width:100%;padding:12px;border-radius:var(--r-pill);background:var(--brand);color:#fff;font-weight:600}
   .cond-row{display:flex;gap:var(--s1);flex-wrap:wrap;margin-top:var(--s3)}
   .cond{padding:5px 10px;border-radius:var(--r-pill);background:var(--sunken);color:var(--muted);font-size:var(--fs-micro)}
@@ -954,12 +956,12 @@
             <path d="M104 151h16v12c-5 3-11 3-16 0Z" fill="#F0E2C6" stroke-width="2"/>
             <path d="M108 151c-3-4-7 0 0 5 7-5 3-9 0-5Z" fill="#DE9A98" stroke-width="1.3"/>
 
-            <g class="left-arm"><path d="M92 122c-11 3-21 9-28 18l9 7c6-8 13-13 23-15Z" fill="#FBE2D4" stroke-width="2.5"/>
+            <g class="left-arm"><path d="M92 122c-10 3-20 9-30 18-2 2-3 4-4 6 2 2 4 3 6 4 8-7 17-12 28-16Z" fill="#FBE2D4" stroke-width="2.5"/>
             <circle cx="58" cy="148" r="5.5" fill="#FBE2D4" stroke-width="2.5"/></g>
 
             <g class="left-tool">
-              <path d="M58 148 36 156" stroke="#6F5A4E" stroke-width="9" fill="none"/>
-              <path d="M58 148 36 156" stroke="#C9A98F" stroke-width="5" fill="none"/>
+              <path d="M62 146.6 36 156" stroke="#6F5A4E" stroke-width="9" fill="none"/>
+              <path d="M62 146.6 36 156" stroke="#C9A98F" stroke-width="5" fill="none"/>
               <ellipse cx="28" cy="160" rx="21" ry="8.5" fill="#D3CBC1" stroke-width="2.6"/>
               <ellipse cx="28" cy="158" rx="16" ry="6" fill="#E4DDD4" stroke-width="1.6"/>
               <path d="M14 156c-2-7 6-12 14-11 9-1 15 4 14 10-1 6-9 9-16 8-6-1-11-3-12-7Z" fill="#FFFCF6" stroke-width="2"/>
@@ -978,7 +980,7 @@
               <path d="m197 55v6m7-6v6m7-6v6" fill="none" stroke-width="2.4"/>
             </g>
 
-            <g class="base-right-arm"><path d="M132 122c14-2 25-8 33-17l8 8c-9 10-21 16-35 18Z" fill="#FBE2D4" stroke-width="2.6"/>
+            <g class="base-right-arm"><path d="M132 117 Q150 115 167 113 L171 111 Q152 119 132 127 Z" fill="#FBE2D4" stroke-width="2.6"/>
             <circle cx="167" cy="107" r="5.5" fill="#FBE2D4" stroke-width="2.4"/></g>
             <g class="head-group">
             <path d="M112 28c-30 0-48 18-48 46 0 16 5 28 12 36l-7 12 15-5c8 6 17 9 28 9s20-3 28-9l15 5-7-12c7-8 12-20 12-36 0-28-18-46-48-46Z" fill="#CDB6A3" stroke-width="2.8"/>
@@ -1151,15 +1153,15 @@
 
   <nav class="modes" role="tablist">
     <button class="mode" data-mode="decide" role="tab" aria-selected="true"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="17" height="17" rx="4.5"/><circle cx="9" cy="9" r="1.15" fill="currentColor" stroke="none"/><circle cx="15" cy="15" r="1.15" fill="currentColor" stroke="none"/><circle cx="15" cy="9" r="1.15" fill="currentColor" stroke="none"/><circle cx="9" cy="15" r="1.15" fill="currentColor" stroke="none"/></svg><span>帮我决定</span></button>
-    <button class="mode" data-mode="cook" role="tab" aria-selected="false"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10h16v5a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4v-5Z"/><path d="M2 10h20"/><path d="M9 6.5c0-1 .6-1.6.6-2.5M14 6.5c0-1 .6-1.6.6-2.5"/></svg><span>在家做</span></button>
-    <button class="mode" data-mode="log" role="tab" aria-selected="false"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H11v16H5.5A1.5 1.5 0 0 1 4 18.5v-13Z"/><path d="M20 5.5A1.5 1.5 0 0 0 18.5 4H13v16h5.5a1.5 1.5 0 0 0 1.5-1.5v-13Z"/></svg><span>这周吃了啥</span></button>
-    <button class="mode" data-mode="learn" role="tab" aria-selected="false"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6.2c-1.6-1.2-3.6-1.8-6.2-1.8H4v13.2h1.8c2.4 0 4.3.6 6.2 1.8 1.9-1.2 3.8-1.8 6.2-1.8H20V4.4h-1.8c-2.6 0-4.6.6-6.2 1.8Z"/><path d="M12 6.2v13.2"/></svg><span>小饭烹饪课堂</span></button>
+    <button class="mode" data-mode="cook" role="tab" aria-selected="false"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10h16v5a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4v-5Z"/><path d="M2 10h20"/><path d="M9 6.5c0-1 .6-1.6.6-2.5M14 6.5c0-1 .6-1.6.6-2.5"/></svg><span>居家烹饪</span></button>
+    <button class="mode" data-mode="log" role="tab" aria-selected="false"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H11v16H5.5A1.5 1.5 0 0 1 4 18.5v-13Z"/><path d="M20 5.5A1.5 1.5 0 0 0 18.5 4H13v16h5.5a1.5 1.5 0 0 0 1.5-1.5v-13Z"/></svg><span>本周食程</span></button>
+    <button class="mode" data-mode="learn" role="tab" aria-selected="false"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6.2c-1.6-1.2-3.6-1.8-6.2-1.8H4v13.2h1.8c2.4 0 4.3.6 6.2 1.8 1.9-1.2 3.8-1.8 6.2-1.8H20V4.4h-1.8c-2.6 0-4.6.6-6.2 1.8Z"/><path d="M12 6.2v13.2"/></svg><span>小饭课堂</span></button>
   </nav>
 
   <div id="panel-decide" class="panel-body">
     <section class="card">
       <div class="label"><h2>先问几个问题</h2><span>或者直接抽</span></div>
-      <button class="ghost-btn" id="use-nearby" type="button">授权位置，按附近招牌菜推荐</button>
+      <button class="ghost-btn" id="use-nearby" type="button">授权位置，按本地菜推荐</button>
       <p class="status" id="nearby-status"></p>
       <div class="qbox" id="qbox"></div>
       <div class="result-box" id="decide-result"></div>
@@ -1200,7 +1202,7 @@
 
   <div id="panel-learn" class="panel-body" hidden>
     <section class="card">
-      <div class="label"><h2>小饭烹饪课堂</h2><span>按 2 人份</span></div>
+      <div class="label"><h2>小饭课堂</h2><span>按 2 人份</span></div>
       <p class="learn-note">说一道想学的菜，小饭先点清食材，再一步一步教火候。</p>
       <form class="learn-form" id="learn-form">
         <input id="learn-dish" type="text" maxlength="40" placeholder="例如：番茄炒蛋" autocomplete="off" aria-label="想学的菜名">
@@ -1293,15 +1295,27 @@
   // 后端返回 401 时再提示输入，避免把生产 Token 带进仓库。
   const TOKEN_KEY = 'fandazi-api-token';
   const getToken = () => sessionStorage.getItem(TOKEN_KEY) || '';
+  let tokenPromptInProgress = null; // 防止并发请求弹多次输入框
   async function apiFetch(url, options = {}, retried = false) {
     const headers = new Headers(options.headers || {});
     const token = getToken();
     if (token) headers.set('X-API-Token', token);
     const res = await fetch(url, { ...options, headers });
     if (res.status === 401 && !retried) {
-      const entered = window.prompt('这个服务需要 API_TOKEN，请输入后继续（只保存在当前标签页）');
-      if (entered && entered.trim()) {
-        sessionStorage.setItem(TOKEN_KEY, entered.trim());
+      // 如果已经在等待用户输入 TOKEN，其他请求等待同一个 Promise
+      if (!tokenPromptInProgress) {
+        tokenPromptInProgress = new Promise((resolve) => {
+          const entered = window.prompt('这个服务需要 API_TOKEN，请输入后继续（只保存在当前标签页）');
+          if (entered && entered.trim()) {
+            sessionStorage.setItem(TOKEN_KEY, entered.trim());
+          }
+          tokenPromptInProgress = null;
+          resolve();
+        });
+      }
+      await tokenPromptInProgress;
+      // 输入完成后重试请求
+      if (getToken()) {
         return apiFetch(url, options, true);
       }
     }
@@ -1625,7 +1639,21 @@
       renderDecision();
       rememberDecision();
       await attachSavedGeo();
-    } catch (e) { $('qbox').innerHTML = '<p class="q">暂时连不上，稍后再试</p>'; }
+    } catch (e) {
+      $('qbox').innerHTML = '<p class="q">暂时连不上，稍后再试</p>'
+        + '<button class="ghost-btn" id="retry-start" type="button">重新连接</button>';
+      $('retry-start').onclick = () => startDecision(mode);
+    }
+  }
+
+  function showNearbyRetry(message) {
+    $('nearby-status').innerHTML = `${escapeHtml(message)} <button type="button" class="retry-link" id="retry-nearby">再试一次</button>`;
+    $('retry-nearby').onclick = retryNearby;
+  }
+
+  function retryNearby() {
+    $('nearby-status').textContent = '正在询问位置…';
+    $('use-nearby').click();
   }
 
   async function attachSavedGeo() {
@@ -1641,13 +1669,13 @@
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        $('nearby-status').textContent = data.detail || '附近的店没查到，先用原来的菜库';
+        showNearbyRetry(data.detail || '位置暂时没查到，仍可按你的选择推荐常见菜');
         return false;
       }
       applySession(data);
       return true;
     } catch (e) {
-      $('nearby-status').textContent = '附近的店没查到，先用原来的菜库';
+      showNearbyRetry('位置暂时没查到，仍可按你的选择推荐常见菜');
       return false;
     }
   }
@@ -1662,15 +1690,15 @@
       sessionStorage.setItem('fandazi-geo', JSON.stringify({
         lat: pos.coords.latitude, lng: pos.coords.longitude
       }));
-      $('nearby-status').textContent = '正在查附近的招牌菜…';
+      $('nearby-status').textContent = '正在查找所在地区…';
       if (!session) await startDecision('takeout');
       else await attachSavedGeo();
-      if ($('nearby-status').textContent === '正在查附近的招牌菜…') {
-        $('nearby-status').textContent = '问完就按附近店铺的招牌菜推荐';
+      if ($('nearby-status').textContent === '正在查找所在地区…') {
+        $('nearby-status').textContent = '问完后优先推荐本地菜';
       }
     }, () => {
-      $('nearby-status').textContent = '没有拿到位置，还是用原来的菜库';
-    });
+      showNearbyRetry('没有拿到位置，还是用原来的菜库');
+    }, { timeout: 8000, maximumAge: 60000 });
   };
 
   function rememberDecision() {
@@ -1682,7 +1710,7 @@
   function applySession(next) {
     session = next;
     if (session.location_label) {
-      $('nearby-status').textContent = `当前位置：${session.location_label} · 本地特色及附近推荐已开启`;
+      $('nearby-status').textContent = `当前位置：${session.location_label}`;
     }
     if (session.condition && session.condition !== cond) {
       cond = session.condition;
@@ -1699,7 +1727,7 @@
       if (!res.ok) return false;
       const next = await res.json();
       applySession(next);
-      if (next.mode === 'takeout' && next.location_data_version < 3 && sessionStorage.getItem('fandazi-geo')) {
+      if (next.mode === 'takeout' && next.location_data_version < 4 && sessionStorage.getItem('fandazi-geo')) {
         await attachSavedGeo();
       }
       return true;
@@ -1717,14 +1745,6 @@
 
     if (session.result) {
       const stepText = `抽了 ${session.draws} 次`;
-      const sourceSwitch = (session.available_sources || []).length > 1
-        ? `<div class="source-switch" role="group" aria-label="推荐类别">` +
-          `<button class="source-choice" type="button" data-source="local" aria-pressed="${session.recommendation_source === 'local'}">当地特产</button>` +
-          `<button class="source-choice" type="button" data-source="nearby" aria-pressed="${session.recommendation_source === 'nearby'}">附近餐馆</button></div>`
-        : '';
-      const sourceNote = session.recommendation_source === 'nearby'
-        ? '<p class="source-note">菜品来自高德商家招牌标签，不是完整菜单；是否支持外卖请在商家或外卖平台确认。</p>'
-        : '';
       const alts = (session.alternatives || []).filter(n => n);
       const altBlock = alts.length
         ? `<div class="alt-wrap"><div class="alt-title">不合适的话，这几个也符合</div>` +
@@ -1742,12 +1762,15 @@
       const reasonWrap = reasons.length
         ? `<div class="why">` + reasons.map(r => `<span class="why-item">${escapeHtml(r)}</span>`).join('') + `</div>`
         : '';
+      const dishMatch = session.mode === 'takeout' ? (session.result || '').match(/「(.+?)」/) : null;
+      const takeoutJump = dishMatch
+        ? `<div class="takeout-row"><span class="takeout-label">直接去点：</span>`
+          + `<a class="takeout-btn" href="https://h5.ele.me/search/?keyword=${encodeURIComponent(dishMatch[1])}" target="_blank" rel="noopener noreferrer">饿了么搜「${escapeHtml(dishMatch[1])}」</a>`
+          + `<a class="takeout-btn" href="https://h5.waimai.meituan.com/waimai/mindex/search?searchKeyword=${encodeURIComponent(dishMatch[1])}" target="_blank" rel="noopener noreferrer">美团搜「${escapeHtml(dishMatch[1])}」</a></div>`
+        : '';
       result.innerHTML =
-        sourceSwitch + sourceNote + `<div class="result-card"><div class="result-top"><b>就这个了</b><span class="turn">${stepText}</span></div>` +
-        `<p class="result-text">${escapeHtml(session.result)}</p>${reasonWrap}</div>` + altBlock + feedback + watchChoice + restart + tip;
-      result.querySelectorAll('.source-choice').forEach(button => {
-        button.onclick = () => switchDecisionSource(button.dataset.source);
-      });
+        `<div class="result-card"><div class="result-top"><b>小饭推荐</b><span class="turn">${stepText}</span></div>` +
+        `<p class="result-text">${escapeHtml(session.result)}</p>${reasonWrap}</div>` + altBlock + takeoutJump + feedback + watchChoice + restart + tip;
       $('feedback-accept').onclick = async () => {
         if (!await submitFeedback('accept')) return;
         $('watch-after-meal').hidden = false;
@@ -1770,6 +1793,14 @@
         `</div><button class="ghost-btn" id="just-draw">不想选，直接帮我抽</button>`;
       box.querySelectorAll('.opt').forEach(b => b.onclick = () => answer(b.dataset.id));
       $('just-draw').onclick = drawAgain;
+      return;
+    }
+
+    if (session.finished) {
+      const message = session.suggestion || '按你的条件没找到合适的，换个口味或模式试试。';
+      box.innerHTML = `<p class="q">${escapeHtml(message)}</p>` +
+        `<button class="ghost-btn" id="restart-empty" type="button">重新选择条件</button>`;
+      $('restart-empty').onclick = () => startDecision(session.mode === 'cook' ? 'cook' : 'takeout');
       return;
     }
 
@@ -1821,18 +1852,6 @@
       busy = false;
       setMascot('idle');
     }
-  }
-
-  async function switchDecisionSource(source) {
-    if (!session || source === session.recommendation_source) return;
-    const res = await apiFetch(`${api}/decisions/${session.session_id}/source?source=${encodeURIComponent(source)}`, { method: 'POST' });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      flashToast(data.detail || '暂时没有符合条件的菜');
-      return;
-    }
-    session = data;
-    renderDecision();
   }
 
   async function answer(option) {
