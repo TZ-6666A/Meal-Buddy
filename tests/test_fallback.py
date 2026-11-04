@@ -222,8 +222,9 @@ def test_ingredient_match_accepts_common_names_and_water_only():
         recipe, ["2个番茄", "半盒豆腐"]
     )
 
+    # 食用油是常备调料，用户只写主料时不应因此否掉整道菜。
     recipe.ingredients.append(RecipeIngredient(name="食用油", amount="少许"))
-    assert not DietAgent._recipe_matches_available_ingredients(
+    assert DietAgent._recipe_matches_available_ingredients(
         recipe, ["番茄", "豆腐"]
     )
 
@@ -240,8 +241,45 @@ def test_ingredient_match_rejects_unlisted_oil_in_steps():
         steps=["热锅加油，放入番茄翻炒。", "加水煮开后放入鸡蛋。"],
     )
 
+    # 步骤里出现的油同属常备调料，不再作为缺料理由。
+    assert DietAgent._recipe_matches_available_ingredients(
+        recipe, ["番茄", "鸡蛋"]
+    )
+
+
+def test_ingredient_match_rejects_missing_main_ingredient():
+    recipe = Recipe(
+        name="南瓜小米粥",
+        description="",
+        prep_minutes=30,
+        ingredients=[
+            {"name": "南瓜", "amount": "150 克"},
+            {"name": "小米", "amount": "半杯"},
+        ],
+        steps=["煮粥"],
+    )
+
+    # 南瓜、小米不是常备调料，缺了就应拒绝。
     assert not DietAgent._recipe_matches_available_ingredients(
         recipe, ["番茄", "鸡蛋"]
+    )
+
+
+def test_ingredient_match_requires_using_a_listed_ingredient():
+    recipe = Recipe(
+        name="酸辣土豆片",
+        description="",
+        prep_minutes=15,
+        ingredients=[{"name": "土豆", "amount": "1 个"}],
+        steps=["切片清炒"],
+    )
+
+    # 用户填了鸡蛋，菜里完全没用到，应视为不相关。
+    assert not DietAgent._recipe_matches_available_ingredients(
+        recipe, ["鸡蛋"]
+    )
+    assert DietAgent._recipe_matches_available_ingredients(
+        recipe, ["土豆"]
     )
 
 
