@@ -201,6 +201,15 @@ class GeoPoint(BaseModel):
     lng: float = Field(ge=-180, le=180)
 
 
+class CityPick(BaseModel):
+    city: str = Field(min_length=1, max_length=40)
+
+
+class IpLocation(BaseModel):
+    city: str = ""
+    source: str = ""
+
+
 class DecisionState(BaseModel):
     session_id: int
     mode: str
@@ -208,8 +217,6 @@ class DecisionState(BaseModel):
     total_steps: int = 0
     location_label: str = ""
     location_data_version: int = 0
-    recommendation_source: str = ""
-    available_sources: list[str] = Field(default_factory=list)
     condition: str = ""
     question: str = ""
     options: list[DecisionOption] = Field(default_factory=list)

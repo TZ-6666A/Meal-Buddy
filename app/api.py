@@ -23,10 +23,12 @@ from app.schemas import (
     ChatReply,
     ChatMessageRead,
     ChatRequest,
+    CityPick,
     DecisionOption,
     DecisionState,
     DeleteDataRequest,
     GeoPoint,
+    IpLocation,
     MealCreate,
     MealRead,
     FeedbackCreate,
@@ -41,8 +43,7 @@ from app.schemas import (
     CookLesson,
     CookLessonRequest,
 )
-from app.services import decision, nearby, nutrition, usage, watch
-from app.services.nearby import NearbyError
+from app.services import city_dishes, decision, nearby, nutrition, usage, watch
 from app.services.meal_assistant import MAX_HISTORY_MESSAGES, DietAgent, summarize_older_history
 from app.services.cook_teacher import CookTeacher
 from app.rate_limit import limit_model_calls
@@ -437,11 +438,19 @@ async def cook_lesson(payload: CookLessonRequest, db: Session = Depends(get_db))
 
 
 def _nearby_places(session: DecisionSession) -> list | None:
-    """定位过后返回招牌菜列表。没定位则返回 None，继续用原来的菜库。"""
+    """定位后返回当地菜（静态特产 + AI 整理的日常菜）；没定位则返回 None。"""
     if session.mode != "takeout":
         return None
-    raw = (session.answers or {}).get("_places")
-    return raw if isinstance(raw, list) else None
+    answers = session.answers or {}
+    merged: list = []
+    for key in ("_local_places", "_ai_places"):
+        raw = answers.get(key)
+        if isinstance(raw, list):
+            merged.extend(item for item in raw if isinstance(item, dict))
+    label = str(answers.get("_location_label") or "")
+    if label:
+        merged.extend(city_dishes.cached(label))
+    return merged or None
 
 
 def _pick_choice(session: DecisionSession, blocked: list[str], drawn: list[str],
@@ -452,17 +461,25 @@ def _pick_choice(session: DecisionSession, blocked: list[str], drawn: list[str],
             session.mode, session.answers or {}, drawn, condition, blocked, recent
         )
     answers = session.answers or {}
-    source = _recommendation_source(places, answers, blocked)
-    picked = nearby.choose(places, answers, blocked, drawn, source=source)
-    return picked["choice"] if picked else ""
+    picked = nearby.choose(places, answers, blocked, drawn, source="all")
+    if picked:
+        return picked["choice"]
+    return decision.draw(session.mode, answers, drawn, condition, blocked, recent)
 
 
-def _recommendation_source(places: list, answers: dict, blocked: list[str]) -> str:
-    selected = answers.get("_recommendation_source")
-    available = nearby.sources_with_matches(places, answers, blocked)
-    if selected in available:
-        return selected
-    return available[0] if available else ""
+def _no_match_suggestion(location_label: str, answers: dict, has_location_data: bool) -> str:
+    if not has_location_data:
+        return "按你的条件没找到合适的，换个口味或模式试试。"
+    labels = {
+        "taste": {"sweet": "甜口", "salty": "咸鲜", "spicy": "辣口", "light": "清淡"},
+        "staple": {"rice": "米饭", "noodle": "面食", "nocarb": "不吃主食"},
+        "heaviness": {"heavy": "丰盛", "simple": "简单"},
+    }
+    criteria = [labels[key].get(answers.get(key), "") for key in labels]
+    criteria = [item for item in criteria if item]
+    selected = f"“{'、'.join(criteria)}”这组条件" if criteria else "当前条件"
+    area = f"{location_label}的" if location_label else ""
+    return f"{area}本地菜库和常见菜库里都没有符合{selected}的菜，可以重新选择口味、主食或分量。"
 
 
 def _state(session: DecisionSession, db: Session, auto_draw: bool = False) -> DecisionState:
@@ -475,8 +492,6 @@ def _state(session: DecisionSession, db: Session, auto_draw: bool = False) -> De
     location_label = str((session.answers or {}).get("_location_label") or "")
     location_data_version = int((session.answers or {}).get("_location_data_version") or 0)
     places = _nearby_places(session)
-    sources = nearby.sources_with_matches(places, session.answers or {}, filter_words) if places is not None else []
-    source = _recommendation_source(places, session.answers or {}, filter_words) if places is not None else ""
     step = decision.next_step(session.mode, session.answers or {})
 
     if step is None and not drawn and auto_draw:
@@ -497,14 +512,21 @@ def _state(session: DecisionSession, db: Session, auto_draw: bool = False) -> De
                 session.mode, session.answers or {}, drawn[-1], session.condition, blocked, recent
             )
         else:
-            alts = nearby.alternatives(places, session.answers or {}, filter_words, drawn, 3, source=source)
-            picked = nearby.choose(places, session.answers or {}, filter_words, drawn[:-1], source=source)
+            local_alts = nearby.alternatives(
+                places, session.answers or {}, filter_words, drawn, 3, source="all"
+            )
+            common_alts = decision.alternatives(
+                session.mode, session.answers or {}, drawn, session.condition,
+                filter_words, recent, 3, drawn[-1],
+            )
+            alts = list(dict.fromkeys(local_alts + common_alts))[:3]
+            picked = nearby.choose(places, session.answers or {}, filter_words, drawn[:-1], source="all")
             if picked and picked["choice"] == drawn[-1]:
                 reasons = picked["reasons"]
-            elif source == "local":
-                reasons = ["当地特色菜", "符合你选择的口味"]
             else:
-                reasons = ["附近餐馆菜品", "是否支持外卖请在商家平台确认"]
+                reasons = decision.explain(
+                    session.mode, session.answers or {}, drawn[-1], session.condition, blocked, recent
+                )
         return DecisionState(
             session_id=session.id,
             mode=session.mode,
@@ -512,8 +534,6 @@ def _state(session: DecisionSession, db: Session, auto_draw: bool = False) -> De
             total_steps=total,
             location_label=location_label,
             location_data_version=location_data_version,
-            recommendation_source=source,
-            available_sources=sources,
             condition=session.condition,
             question="",
             options=[],
@@ -537,14 +557,12 @@ def _state(session: DecisionSession, db: Session, auto_draw: bool = False) -> De
             total_steps=total,
             location_label=location_label,
             location_data_version=location_data_version,
-            recommendation_source=source,
-            available_sources=sources,
             condition=session.condition,
             can_draw=False,
             result="",
             finished=True,
             note=_note_line(db, blocked),
-            suggestion="这个来源里暂时没有符合条件的菜，换一种口味或主食试试。" if places is not None else "按你的条件没找到合适的，换个口味或模式试试。",
+            suggestion=_no_match_suggestion(location_label, session.answers or {}, places is not None),
         )
 
     return DecisionState(
@@ -554,8 +572,6 @@ def _state(session: DecisionSession, db: Session, auto_draw: bool = False) -> De
         total_steps=total,
         location_label=location_label,
         location_data_version=location_data_version,
-        recommendation_source=source,
-        available_sources=sources,
         condition=session.condition,
         question=step.question,
         options=[DecisionOption(id=key, label=label, hint=hint) for key, label, hint in step.options],
@@ -593,61 +609,58 @@ def start_decision(mode: str = "takeout", condition: str = "", db: Session = Dep
     return _state(session, db)
 
 
+def _apply_location(session: DecisionSession, db: Session, location_label: str) -> DecisionState:
+    """把定位结果写入会话并立即抽一次，供坐标与城市名两条路径复用。"""
+    answers = dict(session.answers or {})
+    answers["_location_label"] = location_label
+    answers["_location_data_version"] = nearby.REGIONAL_CATALOG_VERSION
+    answers["_local_places"] = nearby.regional_places(location_label)
+    answers["_ai_places"] = city_dishes.cached(location_label)
+    # AI 日常菜在后台线程预热：模型慢时不拖住授权流程，下一轮抽签即可用
+    city_dishes.prefetch(location_label)
+    session.answers = answers
+    session.drawn = []
+    db.commit()
+    db.refresh(session)
+    return _state(session, db, auto_draw=True)
+
+
 @router.post("/decisions/{session_id}/location", response_model=DecisionState)
 def save_location(session_id: int, payload: GeoPoint, db: Session = Depends(get_db)) -> DecisionState:
     session = db.get(DecisionSession, session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="会话不存在")
     if session.mode != "takeout":
-        raise HTTPException(status_code=422, detail="只有出去吃才按附近的店推荐")
-    try:
-        key = get_settings().amap_key
-        places = nearby.fetch_places(payload.lng, payload.lat, key)
-    except NearbyError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise HTTPException(status_code=422, detail="只有点外卖模式才能按所在地区推荐")
+    key = get_settings().amap_key
     location_label = nearby.fetch_location_label(payload.lng, payload.lat, key)
-    regional_places = nearby.regional_places(location_label)
-    city = (location_label or "").split("·", 1)[0].strip()
-    city_places = nearby.fetch_city_places(city, key) if not places else []
     answers = dict(session.answers or {})
     answers["_lat"] = payload.lat
     answers["_lng"] = payload.lng
-    answers["_location_label"] = location_label
-    answers["_location_data_version"] = nearby.REGIONAL_CATALOG_VERSION
-    nearby_places = city_places + places
-    all_places = regional_places + nearby_places
-    answers["_local_places"] = regional_places
-    answers["_nearby_places"] = nearby_places
-    answers["_places"] = all_places
-    available = nearby.sources_with_matches(all_places, answers, decision.expand_blocked(_blocked_words(db)))
-    answers["_recommendation_source"] = available[0] if available else ("local" if regional_places else "nearby")
     session.answers = answers
-    session.drawn = []
-    db.commit()
-    db.refresh(session)
-    return _state(session, db, auto_draw=True)
+    return _apply_location(session, db, location_label)
 
 
-@router.post("/decisions/{session_id}/source", response_model=DecisionState)
-def set_decision_source(session_id: int, source: str, db: Session = Depends(get_db)) -> DecisionState:
+@router.post("/decisions/{session_id}/city", response_model=DecisionState)
+def save_city(session_id: int, payload: CityPick, db: Session = Depends(get_db)) -> DecisionState:
+    """用户手动选城市：HTTP 下浏览器不给坐标时的兜底路径。"""
     session = db.get(DecisionSession, session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="会话不存在")
-    if source not in {"local", "nearby"}:
-        raise HTTPException(status_code=422, detail="推荐来源无效")
-    places = _nearby_places(session)
-    if places is None:
-        raise HTTPException(status_code=409, detail="请先启用位置推荐")
-    blocked = decision.expand_blocked(_blocked_words(db))
-    if source not in nearby.sources_with_matches(places, session.answers or {}, blocked):
-        raise HTTPException(status_code=422, detail="这个来源暂时没有符合你条件的菜")
-    answers = dict(session.answers or {})
-    answers["_recommendation_source"] = source
-    session.answers = answers
-    session.drawn = []
-    db.commit()
-    db.refresh(session)
-    return _state(session, db, auto_draw=True)
+    if session.mode != "takeout":
+        raise HTTPException(status_code=422, detail="只有点外卖模式才能按所在地区推荐")
+    label = nearby.city_label(payload.city)
+    if not label:
+        raise HTTPException(status_code=422, detail="城市名不能为空")
+    return _apply_location(session, db, label)
+
+
+@router.get("/location/ip", response_model=IpLocation)
+def ip_location(request: Request) -> IpLocation:
+    """按客户端 IP 粗判城市。Docker 映射后取不到真实 IP 时返回空，前端据此提示手动选择。"""
+    key = get_settings().amap_key
+    city = nearby.locate_by_ip(client_host(request), key)
+    return IpLocation(city=nearby.city_label(city), source="ip" if city else "")
 
 
 @router.post("/decisions/{session_id}/answer", response_model=DecisionState)

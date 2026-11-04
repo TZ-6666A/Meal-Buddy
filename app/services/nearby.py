@@ -1,4 +1,4 @@
-"""附近招牌菜：高德美食 POI 的 business.tag，不是完整菜单。"""
+"""按定位地区提供本地菜候选，并通过高德逆地理编码识别城市。"""
 
 from __future__ import annotations
 
@@ -10,14 +10,9 @@ from app.services.decision import is_blocked
 
 logger = logging.getLogger("fandazi.nearby")
 
-AROUND_URL = "https://restapi.amap.com/v5/place/around"
-TEXT_URL = "https://restapi.amap.com/v5/place/text"
 REGEOCODE_URL = "https://restapi.amap.com/v3/geocode/regeo"
-REGIONAL_CATALOG_VERSION = 3
-GENERIC_TAGS = {
-    "美食", "餐饮", "中餐", "西餐", "快餐", "餐厅", "饭店", "小吃", "饮品",
-    "外卖", "夜宵", "早餐", "午餐", "晚餐", "菜品", "特色菜", "推荐菜", "人气", "网红",
-}
+IP_LOCATE_URL = "https://restapi.amap.com/v3/ip"
+REGIONAL_CATALOG_VERSION = 4
 SPICY = ("辣", "麻辣", "香锅", "火锅", "水煮", "剁椒", "川味", "毛血旺")
 SWEET = ("甜", "糖", "蛋糕", "奶茶", "甜品", "冰淇淋", "双皮奶", "糖水", "布丁", "芋圆", "点心")
 LIGHT = ("清蒸", "白灼", "沙拉", "粥", "蒸菜", "菌菇", "蔬菜", "青菜", "豆腐")
@@ -36,95 +31,6 @@ CITY_SPECIALTIES = {
         {"dish": "商洛柿饼", "tastes": ("sweet",), "staples": ("any",), "heaviness": "simple"},
     ],
 }
-
-
-class NearbyError(Exception):
-    pass
-
-
-def _tags(raw: object) -> list[str]:
-    if not isinstance(raw, str):
-        return []
-    parts = raw.replace("，", ",").replace("、", ",").replace(";", ",").split(",")
-    found: list[str] = []
-    for part in parts:
-        name = part.strip()
-        if len(name) < 2 or name in GENERIC_TAGS or name in found:
-            continue
-        found.append(name)
-    return found
-
-
-def parse_places(payload: dict) -> list[dict]:
-    """把高德周边结果收成餐馆及其已标注菜品；tag 不是完整菜单。"""
-    if str(payload.get("status")) != "1":
-        info = payload.get("info") or "高德没有返回店铺"
-        raise NearbyError(str(info))
-    places: list[dict] = []
-    for poi in payload.get("pois") or []:
-        if not isinstance(poi, dict):
-            continue
-        shop = str(poi.get("name") or "").strip()
-        if not shop:
-            continue
-        business = poi.get("business") if isinstance(poi.get("business"), dict) else {}
-        meters = str(poi.get("distance") or "").strip()
-        distance = int(meters) if meters.isdigit() else 99999
-        for dish in _tags(business.get("tag")):
-            places.append({"shop": shop, "dish": dish, "meters": distance, "source": "nearby"})
-    places.sort(key=lambda item: item["meters"])
-    return places
-
-
-def fetch_places(lng: float, lat: float, key: str) -> list[dict]:
-    if not key:
-        raise NearbyError("服务端还没配置高德 Web 服务 Key，请在项目根目录 .env 设置 AMAP_KEY 并重启后端")
-    try:
-        response = httpx.get(
-            AROUND_URL,
-            params={
-                "key": key,
-                "location": f"{lng:.6f},{lat:.6f}",
-                "types": "050000",
-                "radius": 3000,
-                "page_size": 25,
-                "show_fields": "business",
-                "sortrule": "distance",
-            },
-            timeout=8.0,
-        )
-        response.raise_for_status()
-        return parse_places(response.json())
-    except NearbyError:
-        raise
-    except Exception as exc:
-        logger.warning("nearby_search_failed %s", type(exc).__name__)
-        raise NearbyError("附近的店暂时没查到") from exc
-
-
-def fetch_city_places(city: str, key: str) -> list[dict]:
-    """按城市搜索特色美食 POI；城市搜索失败不影响定位和附近推荐。"""
-    if not city or not key:
-        return []
-    try:
-        response = httpx.get(
-            TEXT_URL,
-            params={
-                "key": key,
-                "keywords": "特色美食",
-                "city": city,
-                "citylimit": "true",
-                "types": "050000",
-                "page_size": 25,
-                "show_fields": "business",
-            },
-            timeout=8.0,
-        )
-        response.raise_for_status()
-        return parse_places(response.json())
-    except Exception as exc:
-        logger.warning("nearby_city_search_failed %s", type(exc).__name__)
-        return []
 
 
 def _area_name(value: object) -> str:
@@ -164,6 +70,42 @@ def fetch_location_label(lng: float, lat: float, key: str) -> str:
     except Exception as exc:
         logger.warning("nearby_reverse_geocode_failed %s", type(exc).__name__)
         return ""
+
+
+def locate_by_ip(ip: str, key: str) -> str:
+    """用客户端 IP 粗定位城市。Docker 端口映射后真实 IP 可能丢失，此时返回空。"""
+    if not key or not ip:
+        return ""
+    if ip in ("unknown", "127.0.0.1", "localhost") or ip.startswith(("10.", "192.168.", "172.17.", "172.18.")):
+        return ""
+    try:
+        response = httpx.get(
+            IP_LOCATE_URL,
+            params={"key": key, "ip": ip},
+            timeout=4.0,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if str(payload.get("status")) != "1":
+            return ""
+        city = _area_name(payload.get("city"))
+        province = _area_name(payload.get("province"))
+        if not city and province.endswith("市"):
+            city = province
+        return city
+    except Exception as exc:
+        logger.warning("nearby_ip_locate_failed %s", type(exc).__name__)
+        return ""
+
+
+def city_label(city: str) -> str:
+    """把城市名规范成 location_label 用的形式，便于前端展示与匹配。"""
+    name = (city or "").strip()
+    if not name:
+        return ""
+    if not name.endswith(("市", "区", "县", "州", "盟", "地区")):
+        name = f"{name}市"
+    return name
 
 
 def regional_places(location_label: str) -> list[dict]:
@@ -237,7 +179,7 @@ def _fits(dish: str, answers: dict, place: dict | None = None) -> bool:
 
 def label_of(place: dict) -> str:
     if place.get("region"):
-        return f"{place['region']}特色：{place['dish']}"
+        return str(place["dish"])
     return f"附近{place['shop']}的{place['dish']}"
 
 
@@ -259,9 +201,13 @@ def choose(places: list[dict], answers: dict, blocked: list[str], drawn: list[st
             continue
         region = place.get("region")
         if region:
+            if place.get("source") == "ai-city":
+                reasons = [f"{region}当地人常吃", "符合你选择的口味"]
+            else:
+                reasons = [f"来自{region}本地菜库", "符合你选择的口味"]
             return {
                 "choice": label,
-                "reasons": [f"{region}地方特色", "符合你选择的口味"],
+                "reasons": reasons,
             }
         meters = place.get("meters")
         distance = f"约 {meters} 米" if isinstance(meters, int) and meters < 90000 else "附近"
