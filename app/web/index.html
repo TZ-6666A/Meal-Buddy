@@ -1652,11 +1652,33 @@
       }
       renderDecision();
       rememberDecision();
-      await attachSavedGeo();
+      const geoAttached = await attachSavedGeo();
+      if (mode === 'takeout' && !geoAttached) await tryIpLocation();
     } catch (e) {
       $('qbox').innerHTML = '<p class="q">暂时连不上，稍后再试</p>'
         + '<button class="ghost-btn" id="retry-start" type="button">重新连接</button>';
       $('retry-start').onclick = () => startDecision(mode);
+    }
+  }
+
+  async function tryIpLocation() {
+    try {
+      const res = await apiFetch(`${api}/location/ip`);
+      const data = await res.json();
+      if (!res.ok || !data.city) return false;
+      const cityRes = await apiFetch(`${api}/decisions/${session.session_id}/city`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ city: data.city })
+      });
+      if (!cityRes.ok) return false;
+      const updated = await cityRes.json();
+      applySession(updated);
+      $('use-nearby').style.display = 'none';
+      $('nearby-status').textContent = `当前位置：${updated.location_label}`;
+      return true;
+    } catch (e) {
+      return false;
     }
   }
 
