@@ -656,10 +656,14 @@ def save_city(session_id: int, payload: CityPick, db: Session = Depends(get_db))
 
 
 @router.get("/location/ip", response_model=IpLocation)
-def ip_location(request: Request) -> IpLocation:
-    """按客户端 IP 粗判城市。Docker 映射后取不到真实 IP 时返回空，前端据此提示手动选择。"""
+def ip_location(request: Request, ip: str = "") -> IpLocation:
+    """按客户端 IP 粗判城市。Docker 映射后取不到真实 IP 时返回空，前端据此提示手动选择。
+
+    ip 参数仅用于排查：传了就查这个地址，不传则用请求来源地址。
+    """
     key = get_settings().amap_key
-    city = nearby.locate_by_ip(client_host(request), key)
+    target = ip.strip() or client_host(request)
+    city = nearby.locate_by_ip(target, key)
     return IpLocation(city=nearby.city_label(city), source="ip" if city else "")
 
 

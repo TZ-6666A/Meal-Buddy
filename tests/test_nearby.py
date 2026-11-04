@@ -220,3 +220,16 @@ def test_save_city_api_rejects_blank_city(client):
     response = client.post(f"/api/v1/decisions/{session_id}/city", json={"city": ""})
 
     assert response.status_code == 422
+
+
+def test_ip_location_api_accepts_explicit_ip(client, monkeypatch):
+    monkeypatch.setattr(
+        "app.api.get_settings",
+        lambda: SimpleNamespace(daily_token_budget=0, amap_key="test-key"),
+    )
+    monkeypatch.setattr(nearby, "locate_by_ip", lambda ip, key: "商洛市" if ip == "1.2.3.4" else "")
+
+    response = client.get("/api/v1/location/ip?ip=1.2.3.4")
+
+    assert response.status_code == 200
+    assert response.json() == {"city": "商洛市", "source": "ip"}
