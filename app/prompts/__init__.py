@@ -5,7 +5,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-PROMPT_VERSION = "2026-10-30.2"
+PROMPT_VERSION = "2026-11-03.1"
 
 _DIR = Path(__file__).parent
 

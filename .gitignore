@@ -6,6 +6,8 @@ __pycache__/
 .ruff_cache/
 .idea/
 shots/
+# 高德抓取的原始 POI 素材，人工筛选后才进代码，不进版本库
+harvest/
 eval/*.tmp
 eval/*.out
 eval/*.jsonl

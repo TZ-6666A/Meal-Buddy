@@ -8,6 +8,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db import Base, get_db
 from app.main import app
+from app.rate_limit import reset_rate_limits
 
 
 @pytest.fixture()
@@ -47,7 +48,19 @@ def client(tmp_path, monkeypatch):
             llm_price_per_1k_output=0.0,
         ),
     )
+    # AI 城市菜层默认无 Key：测试里不发起真实模型调用
+    monkeypatch.setattr(
+        "app.services.city_dishes.get_settings",
+        lambda: SimpleNamespace(
+            openai_api_key="",
+            openai_base_url="http://127.0.0.1:1/v1",
+            openai_model="test-model",
+            llm_price_per_1k_input=0.0,
+            llm_price_per_1k_output=0.0,
+        ),
+    )
     # 不用 with：避免触发 lifespan 里对真实数据库的 create_all
+    reset_rate_limits()
     test_client = TestClient(app)
     test_client.testing_session = TestingSession
     yield test_client
