@@ -1295,26 +1295,40 @@
   // 后端返回 401 时再提示输入，避免把生产 Token 带进仓库。
   const TOKEN_KEY = 'fandazi-api-token';
   const getToken = () => sessionStorage.getItem(TOKEN_KEY) || '';
-  let tokenPromptInProgress = null; // 防止并发请求弹多次输入框
+  // window.prompt 会同步阻塞主线程：并发请求都收到 401 时，
+  // 只有最先处理的那个能弹框，其余请求必须靠"TOKEN 是否已就绪"来跳过弹框。
+  let tokenPromptPromise = null;
+  let tokenPromptDeclined = false;
+  function promptForToken() {
+    if (tokenPromptDeclined) {
+      return Promise.resolve();
+    }
+    if (!tokenPromptPromise) {
+      tokenPromptPromise = Promise.resolve().then(() => {
+        const entered = window.prompt('这个服务需要 API_TOKEN，请输入后继续（只保存在当前标签页）');
+        if (entered && entered.trim()) {
+          sessionStorage.setItem(TOKEN_KEY, entered.trim());
+        } else {
+          tokenPromptDeclined = true;
+        }
+      }).finally(() => {
+        tokenPromptPromise = null;
+      });
+    }
+    return tokenPromptPromise;
+  }
   async function apiFetch(url, options = {}, retried = false) {
+    const tokenBefore = getToken();
     const headers = new Headers(options.headers || {});
-    const token = getToken();
-    if (token) headers.set('X-API-Token', token);
+    if (tokenBefore) headers.set('X-API-Token', tokenBefore);
     const res = await fetch(url, { ...options, headers });
     if (res.status === 401 && !retried) {
-      // 如果已经在等待用户输入 TOKEN，其他请求等待同一个 Promise
-      if (!tokenPromptInProgress) {
-        tokenPromptInProgress = new Promise((resolve) => {
-          const entered = window.prompt('这个服务需要 API_TOKEN，请输入后继续（只保存在当前标签页）');
-          if (entered && entered.trim()) {
-            sessionStorage.setItem(TOKEN_KEY, entered.trim());
-          }
-          tokenPromptInProgress = null;
-          resolve();
-        });
+      // 本次请求发出时还没有 TOKEN，但返回 401 时别的请求已经把它存好了：直接重试。
+      const current = getToken();
+      if (current && current !== tokenBefore) {
+        return apiFetch(url, options, true);
       }
-      await tokenPromptInProgress;
-      // 输入完成后重试请求
+      await promptForToken();
       if (getToken()) {
         return apiFetch(url, options, true);
       }
