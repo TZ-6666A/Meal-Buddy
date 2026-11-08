@@ -422,11 +422,17 @@
   #admin-dialog{width:min(560px,calc(100% - 28px));max-height:min(80vh,620px)}
   #admin-dialog[open]{display:flex;flex-direction:column}
   .auth-field{display:grid;gap:4px;margin-bottom:10px}
+  .auth-field[hidden]{display:none}
   .auth-field span{font-size:var(--fs-micro);color:var(--muted)}
   .auth-field input{height:42px;padding:0 14px;border-radius:var(--r-input);border:1px solid var(--line);
     background:var(--sunken);outline:0;font-size:var(--fs-body)}
   .auth-field input:focus{border-color:var(--brand)}
   .auth-error{min-height:18px;margin:2px 0 8px;font-size:var(--fs-micro);color:var(--danger)}
+  .auth-code-row{display:flex;gap:8px}
+  .auth-code-row input{flex:1;min-width:0}
+  .auth-send{flex:0 0 auto;padding:0 12px;border-radius:var(--r-input);border:1px solid var(--brand);
+    background:var(--surface);color:var(--brand);font-size:var(--fs-micro);white-space:nowrap}
+  .auth-send:disabled{opacity:.55}
   .auth-submit{width:100%;height:44px;border-radius:var(--r-pill);background:var(--brand);color:#fff;
     font-weight:600;font-size:var(--fs-body)}
   .auth-submit:disabled{opacity:.6}
@@ -437,6 +443,7 @@
     font-size:var(--fs-micro)}
   .admin-tab[aria-selected="true"]{background:var(--brand);color:#fff;font-weight:600}
   .admin-table{width:100%;border-collapse:collapse;font-size:var(--fs-micro)}
+  .admin-sub{display:block;margin-top:2px;color:var(--faint)}
   .admin-table th{text-align:left;color:var(--faint);font-weight:600;padding:4px 6px}
   .admin-table td{padding:7px 6px;border-top:1px solid var(--line);vertical-align:middle}
   .admin-num{color:var(--ink-soft);white-space:nowrap}
@@ -1359,7 +1366,7 @@
   </div>
   <p class="pd-sub" id="auth-sub">登录后，数据跟着账号走</p>
   <form id="auth-form" novalidate>
-    <label class="auth-field"><span>用户名</span>
+    <label class="auth-field"><span>用户名或邮箱</span>
       <input id="auth-username" maxlength="24" autocomplete="username">
     </label>
     <label class="auth-field"><span>密码</span>
@@ -1369,7 +1376,19 @@
       <label class="auth-field"><span>昵称（选填）</span>
         <input id="auth-display" maxlength="20" autocomplete="nickname">
       </label>
-      <label class="auth-field"><span>邀请码</span>
+      <div class="auth-field" id="auth-email-row">
+        <span>邮箱</span>
+        <div class="auth-code-row">
+          <input id="auth-email" type="email" maxlength="254" autocomplete="email" placeholder="填 QQ 邮箱收验证码">
+          <button type="button" class="auth-send" id="auth-send">获取验证码</button>
+        </div>
+      </div>
+      <div class="auth-field" id="auth-code-row" hidden>
+        <span>邮箱验证码</span>
+        <input id="auth-email-code" maxlength="6" inputmode="numeric" autocomplete="one-time-code" placeholder="6 位数字">
+      </div>
+      <label class="auth-field" id="auth-invite-row">
+        <span>邀请码</span>
         <input id="auth-invite" maxlength="40" autocomplete="off">
       </label>
     </div>
@@ -1408,13 +1427,41 @@
   // 请求收到 401 时弹登录框，登录成功后自动重试原请求。
   let currentUser = null;
   let authPromise = null;
+  // 注册方式由后端配置决定：配了 SMTP 发件账号走邮箱验证码，否则邀请码
+  let authCfg = { email_enabled: false, invite_required: true };
+  let authCfgPromise = null;
+  let sendCooldown = 0, sendTimer = null;
+
+  function authConfig() {
+    if (!authCfgPromise) {
+      authCfgPromise = fetch(`${api}/auth/config`)
+        .then(res => res.ok ? res.json() : null)
+        .then(data => {
+          if (data) authCfg = { email_enabled: !!data.email_enabled, invite_required: data.invite_required !== false };
+        })
+        .catch(() => {})
+        .finally(() => { authCfgPromise = null; });
+    }
+    return authCfgPromise;
+  }
 
   function setAuthMode(mode) {
     $('auth-form').dataset.mode = mode;
     const register = mode === 'register';
     $('auth-title').textContent = register ? '注册饭搭子' : '登录饭搭子';
-    $('auth-sub').textContent = register ? '凭邀请码注册，每个人有自己的口味和记录' : '登录后，数据跟着账号走';
+    $('auth-sub').textContent = register
+      ? (authCfg.email_enabled ? '用邮箱验证码注册，数据跟着账号走' : '凭邀请码注册，每个人有自己的口味和记录')
+      : '登录后，数据跟着账号走';
     $('auth-extra').hidden = !register;
+    // 邮箱验证码注册优先；没开邮箱才看邀请码
+    $('auth-email-row').hidden = !register || !authCfg.email_enabled;
+    $('auth-code-row').hidden = !register || !authCfg.email_enabled;
+    $('auth-invite-row').hidden = !register || authCfg.email_enabled || !authCfg.invite_required;
+    if (!register) {
+      clearInterval(sendTimer); sendCooldown = 0;
+      $('auth-send').disabled = false;
+      $('auth-send').textContent = '获取验证码';
+    }
     $('auth-switch').textContent = register ? '已有账号？去登录' : '没有账号？注册一个';
     $('auth-submit').textContent = register ? '注册并进入' : '登录';
     $('auth-error').textContent = '';
@@ -1423,6 +1470,7 @@
   function ensureLoggedIn() {
     if (!authPromise) {
       authPromise = (async () => {
+        await authConfig();
         setAuthMode('login');
         $('auth-password').value = '';
         $('auth-username').focus();
@@ -1444,14 +1492,70 @@
     return res;
   }
 
+  function setSendCountdown(seconds) {
+    sendCooldown = seconds;
+    const btn = $('auth-send');
+    clearInterval(sendTimer);
+    const tick = () => {
+      if (sendCooldown <= 0) {
+        clearInterval(sendTimer);
+        btn.disabled = false;
+        btn.textContent = '重新发送';
+        return;
+      }
+      btn.textContent = `${sendCooldown}s 后重发`;
+      sendCooldown--;
+    };
+    btn.disabled = true;
+    tick();
+    sendTimer = setInterval(tick, 1000);
+  }
+
+  $('auth-send').addEventListener('click', async () => {
+    const email = $('auth-email').value.trim();
+    if (!email || !email.includes('@')) {
+      $('auth-error').textContent = '先填一个能收信的邮箱';
+      return;
+    }
+    $('auth-error').textContent = '';
+    $('auth-send').disabled = true;
+    try {
+      const res = await fetch(`${api}/auth/email-code`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        $('auth-error').textContent = data.detail || '验证码发送失败，稍后再试';
+        $('auth-send').disabled = false;
+        return;
+      }
+      $('auth-error').textContent = '验证码已发出，去邮箱看看（可能在垃圾邮件里）';
+      setSendCountdown(60);
+    } catch (e) {
+      $('auth-error').textContent = '网络不给力，稍后再试';
+      $('auth-send').disabled = false;
+    }
+  });
+
   $('auth-form').addEventListener('submit', async event => {
     event.preventDefault();
     const mode = $('auth-form').dataset.mode || 'login';
     const body = { username: $('auth-username').value.trim(), password: $('auth-password').value };
     if (mode === 'register') {
-      body.invite_code = $('auth-invite').value.trim();
       const displayName = $('auth-display').value.trim();
       if (displayName) body.display_name = displayName;
+      if (authCfg.email_enabled) {
+        body.email = $('auth-email').value.trim();
+        body.email_code = $('auth-email-code').value.trim();
+        if (!body.email || !body.email_code) {
+          $('auth-error').textContent = '邮箱和验证码都要填';
+          return;
+        }
+      } else if (authCfg.invite_required) {
+        body.invite_code = $('auth-invite').value.trim();
+      }
     }
     if (!body.username || !body.password) {
       $('auth-error').textContent = '用户名和密码都要填';
@@ -2194,7 +2298,7 @@
         <tbody>
           ${users.map(u => `
             <tr>
-              <td>${escapeHtml(u.display_name || u.username)}${u.is_admin ? ' <b class="admin-tag">管理</b>' : ''}${u.is_active ? '' : ' <b class="admin-tag off">已停用</b>'}</td>
+              <td><div>${escapeHtml(u.display_name || u.username)}${u.is_admin ? ' <b class="admin-tag">管理</b>' : ''}${u.is_active ? '' : ' <b class="admin-tag off">已停用</b>'}</div>${u.email ? `<div class="admin-sub">${escapeHtml(u.email)}</div>` : ''}</td>
               <td class="admin-num">${u.meals || 0} 吃 · ${u.decisions || 0} 决策</td>
               <td class="admin-num">${u.last_login_at ? new Date(u.last_login_at).toLocaleDateString() : '—'}</td>
               <td class="admin-acts">
