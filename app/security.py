@@ -1,4 +1,5 @@
 import hmac
+import ipaddress
 import logging
 
 from fastapi import Header, HTTPException, Request, status
@@ -8,10 +9,36 @@ from app.config import get_settings
 logger = logging.getLogger("fandazi.security")
 
 LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
+PRIVATE_NETWORKS = tuple(
+    ipaddress.ip_network(cidr)
+    for cidr in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "::1/128")
+)
+
+
+def _is_private(host: str) -> bool:
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return any(address in network for network in PRIVATE_NETWORKS)
 
 
 def client_host(request: Request) -> str:
-    return request.client.host if request.client else "unknown"
+    """取真实客户端 IP。
+
+    直连时就是 socket 对端地址；经 Caddy/nginx 反代时对端是内网代理地址，
+    此时取 X-Forwarded-For 最左边那个公网地址。只有对端确实是内网地址才信任
+    该头，避免外部请求自带伪造的 X-Forwarded-For 骗过限流和敏感接口的本机判断。
+    """
+    peer = request.client.host if request.client else ""
+    if peer and not _is_private(peer):
+        return peer
+    forwarded = request.headers.get("x-forwarded-for", "")
+    for candidate in forwarded.split(","):
+        hop = candidate.strip()
+        if hop and not _is_private(hop):
+            return hop
+    return peer or "unknown"
 
 
 def _reject(request: Request, detail: str) -> HTTPException:

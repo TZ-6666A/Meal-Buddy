@@ -57,7 +57,40 @@ docker compose up -d --build app
 docker compose ps
 ```
 
-应用监听服务器 TCP 8000 端口，可先用 `http://服务器公网IP:8000` 验证；在云防火墙中只开放需要的端口。对公网长期使用时应配置域名和 HTTPS 反向代理。PostgreSQL 数据保存在 Docker 命名卷 `postgres_data`，更新应用时运行 `git pull` 后执行 `docker compose up -d --build app`。不要删除该数据卷。
+应用监听服务器 TCP 8000 端口，可先用 `http://服务器公网IP:8000` 验证；在云防火墙中只开放需要的端口。PostgreSQL 数据保存在 Docker 命名卷 `postgres_data`，更新应用时运行 `git pull` 后执行 `docker compose up -d --build app`。不要删除该数据卷。
+
+### HTTPS 反向代理（定位功能必需）
+
+浏览器的 `navigator.geolocation` 只在安全上下文里可用：`https://` 或 `localhost`。用 `http://公网IP:8000` 访问时，浏览器会直接拒绝定位且不弹权限框，页面只能退回手动选城市。因此公网使用必须配 HTTPS。
+
+Caddy 会自动申请并续期 Let's Encrypt 证书，配置最少：
+
+```bash
+sudo apt install -y caddy
+```
+
+`/etc/caddy/Caddyfile`：
+
+```
+tz369.xyz {
+    reverse_proxy localhost:8000
+}
+```
+
+```bash
+sudo systemctl reload caddy    # 或 restart
+sudo systemctl status caddy
+```
+
+前提与排错：
+
+- 域名 A 记录指向本机公网 IP，且解析已生效（`nslookup 你的域名 8.8.8.8` 能看到该 IP）。
+- **80 和 443 端口必须由 Caddy 占用**。Ubuntu 上预装的 nginx 会抢占 80，导致证书签发的 HTTP-01 校验失败：
+  `sudo systemctl disable --now nginx`。
+- 云厂商安全组需放行 80、443；Caddy 申请证书时对外访问 80。
+- 验证：`curl -I https://你的域名` 返回 200，且 `docker compose logs app` 里能看到真实客户端 IP 而不是 `172.x.x.x`。
+
+应用侧已经配合反代做了两件事，换域名时无需再改代码：`compose.yaml` 里 `FORWARDED_ALLOW_IPS` 让 uvicorn 采信代理写入的 `X-Forwarded-For`；`app/security.py` 的 `client_host()` 只在直连对端是内网地址时才读该头，避免外部伪造。限流和 IP 粗定位都走这个函数。
 
 ## 数据库迁移
 

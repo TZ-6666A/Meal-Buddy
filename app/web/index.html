@@ -454,6 +454,14 @@
   .opt .h{font-size:var(--fs-micro);color:var(--faint);margin-left:auto}
   .ghost-btn{margin-top:var(--s2);padding:11px;border-radius:var(--r-pill);border:1px dashed var(--line);
     color:var(--muted);font-size:var(--fs-meta);width:100%}
+  .city-form{display:flex;gap:var(--s1);margin-top:var(--s2)}
+  .city-form[hidden]{display:none}
+  .city-form input{flex:1 1 auto;min-width:0;padding:9px var(--s3);border-radius:var(--r-pill);
+    border:1px solid var(--line);background:var(--sunken);font-size:var(--fs-meta);outline:0}
+  .city-form input:focus{border-color:var(--brand);background:var(--surface)}
+  .city-form button{flex:0 0 auto;padding:9px 14px;border-radius:var(--r-pill);border:1px solid var(--line);
+    background:var(--surface);color:var(--ink-soft);font-size:var(--fs-meta);white-space:nowrap}
+  .city-form button:hover{border-color:var(--brand);color:var(--brand)}
   .result-box{margin-top:var(--s2)}
   .result-card{padding:var(--s4);border-radius:var(--r-card);background:var(--brand-soft);color:var(--ink-soft);font-size:var(--fs-body);line-height:1.65}
   .result-top{display:flex;align-items:baseline;justify-content:space-between;gap:var(--s2);margin-bottom:6px}
@@ -1163,6 +1171,10 @@
       <div class="label"><h2>先问几个问题</h2><span>或者直接抽</span></div>
       <button class="ghost-btn" id="use-nearby" type="button">授权位置，按本地菜推荐</button>
       <p class="status" id="nearby-status"></p>
+      <form class="city-form" id="city-form" hidden>
+        <input id="city-input" type="text" maxlength="20" placeholder="输入城市，例如：西安" autocomplete="off">
+        <button type="submit">按这个城市推荐</button>
+      </form>
       <div class="qbox" id="qbox"></div>
       <div class="result-box" id="decide-result"></div>
     </section>
@@ -1681,11 +1693,48 @@
       return false;
     }
   }
-
   function showNearbyRetry(message) {
     $('nearby-status').innerHTML = `${escapeHtml(message)} <button type="button" class="retry-link" id="retry-nearby">再试一次</button>`;
     $('retry-nearby').onclick = retryNearby;
+    showCityForm();
   }
+
+  function showCityForm() {
+    $('city-form').hidden = false;
+  }
+
+  function hideCityForm() {
+    $('city-form').hidden = true;
+  }
+
+  async function applyCity(city) {
+    if (!session) await startDecision('takeout');
+    if (!session) return false;
+    const res = await apiFetch(`${api}/decisions/${session.session_id}/city`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ city })
+    });
+    if (!res.ok) return false;
+    const updated = await res.json();
+    applySession(updated);
+    $('use-nearby').style.display = 'none';
+    hideCityForm();
+    $('nearby-status').textContent = `当前位置：${updated.location_label}`;
+    return true;
+  }
+
+  $('city-form').onsubmit = async event => {
+    event.preventDefault();
+    const city = $('city-input').value.trim();
+    if (!city) { $('city-input').focus(); return; }
+    $('nearby-status').textContent = '正在按你选的城市查找…';
+    const ok = await applyCity(city);
+    if (!ok) {
+      $('nearby-status').textContent = '这个城市暂时没查到，换一个试试';
+      showCityForm();
+    }
+  };
 
   function retryNearby() {
     $('nearby-status').textContent = '正在询问位置…';
@@ -1719,6 +1768,12 @@
   $('use-nearby').onclick = () => {
     if (!navigator.geolocation) {
       $('nearby-status').textContent = '这个浏览器不能定位';
+      showCityForm();
+      return;
+    }
+    // HTTP 页面不是安全上下文，浏览器会直接拒绝定位且不给权限弹窗。
+    if (!window.isSecureContext) {
+      showNearbyRetry('当前是 HTTP 页面，浏览器不允许定位。先手动选城市，或改用 HTTPS 访问');
       return;
     }
     $('nearby-status').textContent = '正在询问位置…';
@@ -1732,8 +1787,11 @@
       if ($('nearby-status').textContent === '正在查找所在地区…') {
         $('nearby-status').textContent = '问完后优先推荐本地菜';
       }
-    }, () => {
-      showNearbyRetry('没有拿到位置，还是用原来的菜库');
+    }, err => {
+      const denied = err && err.code === 1;
+      showNearbyRetry(denied
+        ? '定位权限被拒绝，可以在浏览器设置里允许，或直接选城市'
+        : '没有拿到位置，还是用原来的菜库');
     }, { timeout: 8000, maximumAge: 60000 });
   };
 

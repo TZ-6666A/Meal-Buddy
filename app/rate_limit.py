@@ -5,6 +5,7 @@ from time import monotonic
 from fastapi import HTTPException, Request, status
 
 from app.config import get_settings
+from app.security import client_host
 
 _WINDOW_SECONDS = 60.0
 _requests: dict[str, deque[float]] = defaultdict(deque)
@@ -16,7 +17,8 @@ def limit_model_calls(request: Request) -> None:
     if limit <= 0:
         return
 
-    client_ip = request.client.host if request.client else "unknown"
+    # 反代后 request.client 是代理地址，不取真实 IP 会让所有用户共用一个桶。
+    client_ip = client_host(request)
     now = monotonic()
     with _lock:
         timestamps = _requests[client_ip]

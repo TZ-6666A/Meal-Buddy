@@ -1,9 +1,42 @@
 from types import SimpleNamespace
 
 import pytest
+from starlette.requests import Request
 
 from app.config import Settings
 from app.db import get_db
+from app.security import client_host
+
+
+def _request(peer: str, forwarded: str = "") -> Request:
+    headers = [(b"x-forwarded-for", forwarded.encode())] if forwarded else []
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/",
+            "headers": headers,
+            "client": (peer, 1234),
+        }
+    )
+
+
+def test_client_host_uses_peer_when_public():
+    assert client_host(_request("1.2.3.4", "9.9.9.9")) == "1.2.3.4"
+
+
+def test_client_host_reads_forwarded_for_behind_private_proxy():
+    # Caddy/nginx 在宿主机或 Docker 网桥内，对端是内网地址时才采信转发头。
+    assert client_host(_request("172.18.0.1", "223.104.11.159")) == "223.104.11.159"
+    assert client_host(_request("127.0.0.1", "1.2.3.4, 172.18.0.1")) == "1.2.3.4"
+
+
+def test_client_host_ignores_private_hops_in_forwarded_for():
+    assert client_host(_request("127.0.0.1", "10.0.0.5, 192.168.1.7")) == "127.0.0.1"
+
+
+def test_client_host_falls_back_to_peer_without_headers():
+    assert client_host(_request("127.0.0.1")) == "127.0.0.1"
 
 
 def test_health_reports_database_failure_as_503(client):
