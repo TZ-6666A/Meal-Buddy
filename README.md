@@ -113,12 +113,18 @@ sudo systemctl status caddy
 
 ### 账号与登录
 
-网页端使用用户名 + 密码登录，会话由后端签发的 **HttpOnly Cookie** 承载（前端不保存任何凭据）：
+网页端使用用户名（或邮箱）+ 密码登录，会话由后端签发的 **HttpOnly Cookie** 承载（前端不保存任何凭据）：
 
-- 新用户通过**邀请码注册**（`INVITE_CODE`，留空表示关闭注册）；
+- **邮箱验证码注册**（推荐）：配置 `SMTP_USER` + `SMTP_PASSWORD` 后启用，注册必须先收邮件验证码；
+  QQ 邮箱在网页版「设置 → 账号 → POP3/IMAP/SMTP 服务」生成授权码填入 `SMTP_PASSWORD`；
+  验证码 10 分钟有效、60 秒重发冷却、每邮箱每天最多 10 条、连错 5 次作废；
+- 未配置 SMTP 时回退为**邀请码注册**（`INVITE_CODE`，留空表示关闭注册）；
+- 注册邮箱与账号绑定（唯一），之后可以用邮箱代替用户名登录；
+- `EMAIL_ALLOWED_DOMAINS` 可限制只允许特定域名注册（如 `qq.com`），留空不限；
 - 数据全部按账号隔离：吃饭记录、库存、口味、聊天、决策会话各归各的账号；
-- 登录会话默认 30 天（`SESSION_TTL_DAYS`），密码用 scrypt 哈希存储；
+- 登录会话默认 30 天（`SESSION_TTL_DAYS`），密码用 scrypt 哈希存储，验证码只存 SHA-256；
 - 首次启动引导管理员账号（`ADMIN_USERNAME`/`ADMIN_PASSWORD`），历史数据自动归入其名下；
+  配置 `ADMIN_EMAIL` 可给管理员绑邮箱；
 - 管理员登录后页面多出「管理」入口：用户管理（建号/重置密码/停用启用）、使用统计（用户量、记录量、AI 调用与花费）、查看用户数据（只读）。
 
 `X-API-Token` 仍保留为**脚本通道**：携带正确 token 的请求映射到管理员账号，供命令行/自动化调用。`GET /api/v1/health` 公开。
@@ -127,13 +133,15 @@ sudo systemctl status caddy
 
 - `/export`、`DELETE /data`：登录用户，且只作用于**自己的**数据（导出响应带 `Cache-Control: no-store` 并写审计日志）；
 - `/maintenance/prune`、`/usage`、`/admin/*`：仅管理员；
-- `/auth/register`、`/auth/login` 有独立的按 IP 限流，防止在线爆破。
+- `/auth/register`、`/auth/login`、`/auth/email-code` 有独立的按 IP 限流，防止在线爆破。
 
 开发模式（`APP_ENV=development` 且未配 `API_TOKEN`）默认免登录，自动以 `dev` 管理员身份运行；想本地体验真实登录流程，在 `.env` 设 `DEV_AUTO_LOGIN=false` 后重启，浏览器打开页面即可注册/登录。
 
 ## API
 
 - `GET /api/v1/health`
+- `GET /api/v1/auth/config`、`POST /api/v1/auth/email-code`（发送注册验证码邮件）
+- `POST /api/v1/auth/register`、`/auth/login`、`/auth/logout`、`GET /auth/me`
 - `GET|POST /api/v1/meals`、`DELETE /api/v1/meals/{entry_id}`
 - `GET|POST /api/v1/pantry`、`DELETE /api/v1/pantry/{item_id}`
 - `POST /api/v1/recommendations`

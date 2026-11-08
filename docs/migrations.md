@@ -12,6 +12,9 @@
   - 新增 `users`、`user_sessions` 两张表；
   - 五张业务表加 `user_id` 归属列（可空，应用启动引导会把历史 NULL 行归到管理员名下）并幂等补外键；
   - `pantry_items` 的食材名唯一索引从全局唯一改为 `(user_id, lower(name))` 按用户唯一。
+- 邮箱绑定迁移：`migrations/versions/0003_email_binding.py`
+  - `users` 加可空 `email` 列（小写存储）和唯一索引 `uq_users_email`；
+  - 新增 `email_verifications` 表存验证码哈希（发码限频、防爆破）。
 - 迁移里的 DDL 使用 `IF NOT EXISTS`，因此历史上由 `create_all` + `sql/*.sql` 建出来的库可以直接升级，不会因为表已存在而失败。
 - 应用启动时**不再**自动建表。表缺失会直接报错并提示执行 `alembic upgrade head`。
 

@@ -265,6 +265,8 @@ class RegisterRequest(BaseModel):
     password: str = Field(min_length=8, max_length=128)
     display_name: str | None = Field(default=None, max_length=40)
     invite_code: str = Field(default="", max_length=80)
+    email: str | None = Field(default=None, max_length=254)
+    email_code: str = Field(default="", max_length=12)
 
     @field_validator("username", "password", "invite_code")
     @classmethod
@@ -293,9 +295,19 @@ class LoginRequest(BaseModel):
 class UserRead(BaseModel):
     username: str
     display_name: str | None
+    email: str | None
     is_admin: bool
 
     model_config = {"from_attributes": True}
+
+
+class EmailCodeRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+
+    @field_validator("email")
+    @classmethod
+    def strip_email(cls, value: str) -> str:
+        return value.strip().lower()
 
 
 class PasswordResetRequest(BaseModel):

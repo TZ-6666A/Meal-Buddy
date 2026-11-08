@@ -14,14 +14,21 @@ from sqlalchemy.orm import Session
 from app.accounts import (
     SESSION_COOKIE_NAME,
     authenticate,
+    consume_email_code,
     create_session,
     destroy_session,
+    email_send_cooldown_error,
+    generate_email_code,
     hash_password,
+    normalize_email,
     normalize_username,
+    store_email_code,
     validate_credentials,
+    validate_email,
 )
 from app.config import get_settings
 from app.db import get_db
+from app.mailer import email_verification_enabled, send_verification_email
 from app.models import (
     ChatMessage,
     DecisionSession,
@@ -41,6 +48,7 @@ from app.schemas import (
     DecisionOption,
     DecisionState,
     DeleteDataRequest,
+    EmailCodeRequest,
     GeoPoint,
     IpLocation,
     LoginRequest,
@@ -253,27 +261,82 @@ def _me_payload(user: User) -> UserRead:
     return UserRead.model_validate(user)
 
 
+@public_router.get("/auth/config")
+def auth_config() -> dict:
+    """注册方式：配了 SMTP 发件账号就走邮箱验证码，否则回退邀请码。"""
+    email_enabled = email_verification_enabled()
+    invite_required = bool(getattr(get_settings(), "invite_code", "")) and not email_enabled
+    return {"email_enabled": email_enabled, "invite_required": invite_required}
+
+
+@public_router.post("/auth/email-code", dependencies=[Depends(limit_auth_calls)])
+def request_email_code(payload: EmailCodeRequest, db: Session = Depends(get_db)) -> dict:
+    """发送注册验证码邮件。只有在邮箱验证码注册开启时可用。"""
+    if not email_verification_enabled():
+        raise HTTPException(status_code=403, detail="当前未开启邮箱注册")
+    email = normalize_email(payload.email)
+    error = validate_email(email)
+    if error:
+        raise HTTPException(status_code=422, detail=error)
+    allowed = [
+        domain.strip().lower()
+        for domain in getattr(get_settings(), "email_allowed_domains", "").split(",")
+        if domain.strip()
+    ]
+    if allowed and email.rsplit("@", 1)[-1] not in allowed:
+        raise HTTPException(status_code=422, detail="这个邮箱域名不支持注册")
+    if db.scalar(select(User).where(User.email == email)) is not None:
+        raise HTTPException(status_code=409, detail="这个邮箱已经注册过了，直接登录吧")
+    cooldown = email_send_cooldown_error(db, email)
+    if cooldown:
+        raise HTTPException(status_code=429, detail=cooldown)
+    code = generate_email_code()
+    try:
+        send_verification_email(email, code)
+    except Exception:
+        logger.exception("email_code_send_failed to=%s", email)
+        raise HTTPException(status_code=502, detail="验证码邮件发送失败，稍后再试") from None
+    # 发信成功才落库，发送失败不占用发码冷却
+    store_email_code(db, email, code)
+    return {"ok": True}
+
+
 @public_router.post("/auth/register", response_model=UserRead,
                     status_code=status.HTTP_201_CREATED,
                     dependencies=[Depends(limit_auth_calls)])
 def register(payload: RegisterRequest, response: Response, db: Session = Depends(get_db)) -> User:
-    """邀请码注册。邀请码未配置视为注册关闭。"""
+    """注册：配了 SMTP 发件账号走邮箱验证码；未配置时回退邀请码，未配置邀请码视为关闭。"""
     settings = get_settings()
-    expected_code = getattr(settings, "invite_code", "")
-    if not expected_code:
-        raise HTTPException(status_code=403, detail="当前未开放注册")
-    if payload.invite_code != expected_code:
-        raise HTTPException(status_code=403, detail="邀请码不对")
+    email = normalize_email(payload.email) if payload.email else ""
+    if email_verification_enabled():
+        if not email or not payload.email_code.strip():
+            raise HTTPException(status_code=422, detail="请填写邮箱和验证码")
+        error = validate_email(email)
+        if error:
+            raise HTTPException(status_code=422, detail=error)
+    else:
+        expected_code = getattr(settings, "invite_code", "")
+        if not expected_code:
+            raise HTTPException(status_code=403, detail="当前未开放注册")
+        if payload.invite_code != expected_code:
+            raise HTTPException(status_code=403, detail="邀请码不对")
     error = validate_credentials(payload.username, payload.password)
     if error:
         raise HTTPException(status_code=422, detail=error)
     username = normalize_username(payload.username)
     if db.scalar(select(User).where(User.username == username)) is not None:
         raise HTTPException(status_code=409, detail="这个用户名已经被占用了")
+    if email:
+        if db.scalar(select(User).where(User.email == email)) is not None:
+            raise HTTPException(status_code=409, detail="这个邮箱已经注册过了，直接登录吧")
+        code_error = consume_email_code(db, email, payload.email_code)
+        if code_error:
+            raise HTTPException(status_code=400, detail=code_error)
     user = User(
         username=username,
         password_hash=hash_password(payload.password),
         display_name=payload.display_name,
+        email=email or None,
     )
     db.add(user)
     db.commit()
@@ -1211,6 +1274,7 @@ def admin_list_users(db: Session = Depends(get_db)) -> list[dict]:
             "id": u.id,
             "username": u.username,
             "display_name": u.display_name,
+            "email": u.email,
             "is_admin": u.is_admin,
             "is_active": u.is_active,
             "created_at": u.created_at.isoformat() if u.created_at else None,
@@ -1336,6 +1400,7 @@ def admin_user_summary(user_id: int, db: Session = Depends(get_db)) -> dict:
     return {
         "user": {
             "id": user.id, "username": user.username, "display_name": user.display_name,
+            "email": user.email,
             "is_admin": user.is_admin, "is_active": user.is_active,
             "created_at": user.created_at.isoformat() if user.created_at else None,
             "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,

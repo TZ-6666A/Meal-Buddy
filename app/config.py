@@ -16,8 +16,20 @@ class Settings(BaseSettings):
     # 登录系统：管理员引导账号 + 邀请码注册 + 会话时长
     admin_username: str = "admin"
     admin_password: str = ""
+    admin_email: str = ""  # 配了就绑到管理员账号，可用邮箱登录
     invite_code: str = ""
     session_ttl_days: int = 30
+    # 邮箱验证码注册：配了 SMTP 发件账号即启用；未配置时回退为邀请码注册
+    smtp_host: str = "smtp.qq.com"
+    smtp_port: int = 465
+    smtp_tls: str = "ssl"  # ssl | starttls | none
+    smtp_user: str = ""  # 发件邮箱，例如你的 QQ 邮箱
+    smtp_password: str = ""  # QQ 邮箱的 SMTP 授权码（不是 QQ 密码）
+    email_from_name: str = "饭搭子"
+    email_allowed_domains: str = ""  # 逗号分隔；空=不限，例如 qq.com
+    email_code_ttl_minutes: int = 10
+    email_code_resend_seconds: int = 60
+    email_code_max_per_day: int = 10
     # 开发/测试免登录旁路；生产环境固定走 Cookie 会话
     dev_auto_login: bool = True
     rate_limit_per_minute: int = 10
