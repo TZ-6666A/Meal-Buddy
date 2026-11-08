@@ -303,6 +303,18 @@ class UserRead(BaseModel):
 
 class EmailCodeRequest(BaseModel):
     email: str = Field(min_length=3, max_length=254)
+    # register=注册验证码（邮箱必须未被占用）；login=登录验证码（邮箱必须已绑定账号）
+    purpose: str = Field(default="register", pattern="^(register|login)$")
+
+    @field_validator("email")
+    @classmethod
+    def strip_email(cls, value: str) -> str:
+        return value.strip().lower()
+
+
+class EmailCodeLoginRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    email_code: str = Field(min_length=1, max_length=12)
 
     @field_validator("email")
     @classmethod

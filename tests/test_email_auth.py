@@ -17,8 +17,8 @@ def email_env(client, monkeypatch):
     sent = []
     state = {"allowed_domains": ""}
 
-    def fake_send(to_email, code):
-        sent.append((to_email, code))
+    def fake_send(to_email, code, purpose="register"):
+        sent.append((to_email, code, purpose))
 
     def accounts_settings():
         return SimpleNamespace(
@@ -213,6 +213,84 @@ def test_email_disabled_falls_back_to_invite(client, monkeypatch):
     )
     assert response.status_code == 201
     assert response.json()["email"] is None
+
+
+def _skip_cooldown(client, email):
+    """把该邮箱已有验证码记录的时间倒退 2 分钟，绕开发码冷却（专测登录码时用）。"""
+    from app.models import EmailVerification
+
+    with client.testing_session() as session:
+        for row in session.query(EmailVerification).filter_by(email=email):
+            row.created_at = datetime.now(timezone.utc) - timedelta(minutes=2)
+        session.commit()
+
+
+def test_email_code_login(email_env, client):
+    from app.models import User
+
+    # 先注册一个用户并登出
+    assert _send_code(client, "ken@qq.com").status_code == 200
+    assert _register_email(client, "ken", "ken@qq.com", email_env.sent[-1][1]).status_code == 201
+    client.post("/api/v1/auth/logout")
+
+    # 给未注册邮箱发登录码 → 404
+    unregistered = client.post("/api/v1/auth/email-code", json={"email": "ghost@qq.com", "purpose": "login"})
+    assert unregistered.status_code == 404
+
+    # 注册码不能拿来登录（purpose 隔离）：先给未注册邮箱发注册码，
+    # 随后该邮箱变成已注册（模拟管理员建号），旧注册码不得用于登录
+    assert _send_code(client, "fresh@qq.com").status_code == 200  # 默认 purpose=register
+    with client.testing_session() as session:
+        from app.accounts import hash_password
+
+        session.add(User(username="freshman", password_hash=hash_password("password123"), email="fresh@qq.com"))
+        session.commit()
+    wrong_purpose = client.post(
+        "/api/v1/auth/login/email-code", json={"email": "fresh@qq.com", "email_code": email_env.sent[-1][1]}
+    )
+    assert wrong_purpose.status_code == 400
+
+    # 发登录码 → 验证码登录成功
+    _skip_cooldown(client, "ken@qq.com")
+    assert client.post(
+        "/api/v1/auth/email-code", json={"email": "ken@qq.com", "purpose": "login"}
+    ).status_code == 200
+    code = email_env.sent[-1][1]
+    ok = client.post("/api/v1/auth/login/email-code", json={"email": "ken@qq.com", "email_code": code})
+    assert ok.status_code == 200
+    assert ok.json()["username"] == "ken"
+    assert client.get("/api/v1/auth/me").status_code == 200
+    with client.testing_session() as session:
+        user = session.query(User).filter_by(username="ken").one()
+        assert user.last_login_at is not None
+
+    # 验证码一次性
+    client.post("/api/v1/auth/logout")
+    replay = client.post("/api/v1/auth/login/email-code", json={"email": "ken@qq.com", "email_code": code})
+    assert replay.status_code == 400
+
+
+def test_email_code_login_disabled_user(email_env, client):
+    assert _send_code(client, "ivy@qq.com").status_code == 200
+    assert _register_email(client, "ivy", "ivy@qq.com", email_env.sent[-1][1]).status_code == 201
+    with client.testing_session() as session:
+        from app.models import User
+
+        user = session.query(User).filter_by(username="ivy").one()
+        user.is_active = False
+        session.commit()
+    client.post("/api/v1/auth/logout")
+
+    # 停用账号的邮箱仍能收到码，但登录被拒
+    _skip_cooldown(client, "ivy@qq.com")
+    assert client.post(
+        "/api/v1/auth/email-code", json={"email": "ivy@qq.com", "purpose": "login"}
+    ).status_code == 200
+    response = client.post(
+        "/api/v1/auth/login/email-code",
+        json={"email": "ivy@qq.com", "email_code": email_env.sent[-1][1]},
+    )
+    assert response.status_code == 401
 
 
 def test_admin_sees_email(email_env, client):

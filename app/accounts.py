@@ -170,24 +170,28 @@ def generate_email_code() -> str:
     return f"{secrets.randbelow(1_000_000):06d}"
 
 
-def store_email_code(db: Session, email: str, code: str) -> None:
+def store_email_code(db: Session, email: str, code: str, purpose: str = "register") -> None:
     """验证码落库（只存哈希）。发信成功后调用，避免发信失败占用发码冷却。"""
     db.add(
         EmailVerification(
             email=email,
             code_hash=hash_token(code),
-            purpose="register",
+            purpose=purpose,
             expires_at=datetime.now(timezone.utc) + timedelta(minutes=_email_code_ttl_minutes()),
         )
     )
     db.commit()
 
 
-def consume_email_code(db: Session, email: str, code: str) -> str | None:
-    """核销验证码。返回错误文案；None 表示验证通过（验证码随即作废）。"""
+def consume_email_code(db: Session, email: str, code: str, purpose: str = "register") -> str | None:
+    """核销验证码。返回错误文案；None 表示验证通过（验证码随即作废）。
+
+    注册码和登录码分开校验：注册用的码不能拿来登录，反之亦然。
+    """
     stored = db.scalar(
         select(EmailVerification)
         .where(EmailVerification.email == email)
+        .where(EmailVerification.purpose == purpose)
         .where(EmailVerification.used_at.is_(None))
         .order_by(EmailVerification.id.desc())
     )

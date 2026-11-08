@@ -118,6 +118,8 @@ sudo systemctl status caddy
 - **邮箱验证码注册**（推荐）：配置 `SMTP_USER` + `SMTP_PASSWORD` 后启用，注册必须先收邮件验证码；
   QQ 邮箱在网页版「设置 → 账号 → POP3/IMAP/SMTP 服务」生成授权码填入 `SMTP_PASSWORD`；
   验证码 10 分钟有效、60 秒重发冷却、每邮箱每天最多 10 条、连错 5 次作废；
+- **邮箱验证码免密登录**：邮箱模式开启后，登录框可切换「用验证码登录」，输入绑定邮箱收码即登录；
+  注册码与登录码分开校验，不能互相冒用；
 - 未配置 SMTP 时回退为**邀请码注册**（`INVITE_CODE`，留空表示关闭注册）；
 - 注册邮箱与账号绑定（唯一），之后可以用邮箱代替用户名登录；
 - `EMAIL_ALLOWED_DOMAINS` 可限制只允许特定域名注册（如 `qq.com`），留空不限；
@@ -140,8 +142,8 @@ sudo systemctl status caddy
 ## API
 
 - `GET /api/v1/health`
-- `GET /api/v1/auth/config`、`POST /api/v1/auth/email-code`（发送注册验证码邮件）
-- `POST /api/v1/auth/register`、`/auth/login`、`/auth/logout`、`GET /auth/me`
+- `GET /api/v1/auth/config`、`POST /api/v1/auth/email-code`（发送注册/登录验证码邮件）
+- `POST /api/v1/auth/register`、`/auth/login`、`/auth/login/email-code`（邮箱验证码免密登录）、`/auth/logout`、`GET /auth/me`
 - `GET|POST /api/v1/meals`、`DELETE /api/v1/meals/{entry_id}`
 - `GET|POST /api/v1/pantry`、`DELETE /api/v1/pantry/{item_id}`
 - `POST /api/v1/recommendations`

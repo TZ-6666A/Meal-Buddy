@@ -48,6 +48,7 @@ from app.schemas import (
     DecisionOption,
     DecisionState,
     DeleteDataRequest,
+    EmailCodeLoginRequest,
     EmailCodeRequest,
     GeoPoint,
     IpLocation,
@@ -271,7 +272,7 @@ def auth_config() -> dict:
 
 @public_router.post("/auth/email-code", dependencies=[Depends(limit_auth_calls)])
 def request_email_code(payload: EmailCodeRequest, db: Session = Depends(get_db)) -> dict:
-    """发送注册验证码邮件。只有在邮箱验证码注册开启时可用。"""
+    """发送邮箱验证码：purpose=register 用于注册（邮箱须未占用），login 用于免密登录（邮箱须已绑定）。"""
     if not email_verification_enabled():
         raise HTTPException(status_code=403, detail="当前未开启邮箱注册")
     email = normalize_email(payload.email)
@@ -285,20 +286,42 @@ def request_email_code(payload: EmailCodeRequest, db: Session = Depends(get_db))
     ]
     if allowed and email.rsplit("@", 1)[-1] not in allowed:
         raise HTTPException(status_code=422, detail="这个邮箱域名不支持注册")
-    if db.scalar(select(User).where(User.email == email)) is not None:
+    registered = db.scalar(select(User).where(User.email == email)) is not None
+    if payload.purpose == "register" and registered:
         raise HTTPException(status_code=409, detail="这个邮箱已经注册过了，直接登录吧")
+    if payload.purpose == "login" and not registered:
+        raise HTTPException(status_code=404, detail="这个邮箱没有绑定账号，先注册一个吧")
     cooldown = email_send_cooldown_error(db, email)
     if cooldown:
         raise HTTPException(status_code=429, detail=cooldown)
     code = generate_email_code()
     try:
-        send_verification_email(email, code)
+        send_verification_email(email, code, purpose=payload.purpose)
     except Exception:
         logger.exception("email_code_send_failed to=%s", email)
         raise HTTPException(status_code=502, detail="验证码邮件发送失败，稍后再试") from None
     # 发信成功才落库，发送失败不占用发码冷却
-    store_email_code(db, email, code)
+    store_email_code(db, email, code, purpose=payload.purpose)
     return {"ok": True}
+
+
+@public_router.post("/auth/login/email-code", response_model=UserRead,
+                    dependencies=[Depends(limit_auth_calls)])
+def login_with_email_code(
+    payload: EmailCodeLoginRequest, response: Response, db: Session = Depends(get_db)
+) -> User:
+    """邮箱验证码免密登录：收到的验证码核对通过即登录该邮箱绑定的账号。"""
+    email = normalize_email(payload.email)
+    user = db.scalar(select(User).where(User.email == email))
+    if user is None or not user.is_active:
+        raise HTTPException(status_code=401, detail="这个邮箱没有可登录的账号")
+    code_error = consume_email_code(db, email, payload.email_code, purpose="login")
+    if code_error:
+        raise HTTPException(status_code=400, detail=code_error)
+    user.last_login_at = datetime.now(timezone.utc)
+    db.commit()
+    set_session_cookie(response, create_session(db, user))
+    return user
 
 
 @public_router.post("/auth/register", response_model=UserRead,

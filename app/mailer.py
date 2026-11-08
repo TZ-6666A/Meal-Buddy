@@ -25,19 +25,20 @@ def _tls_mode() -> str:
     return (getattr(get_settings(), "smtp_tls", "ssl") or "ssl").strip().lower()
 
 
-def send_verification_email(to_email: str, code: str) -> None:
-    """发送注册验证码邮件；失败抛异常，由调用方决定如何提示。"""
+def send_verification_email(to_email: str, code: str, purpose: str = "register") -> None:
+    """发送验证码邮件（purpose: register=注册 / login=免密登录）；失败抛异常，由调用方决定如何提示。"""
     settings = get_settings()
     ttl = getattr(settings, "email_code_ttl_minutes", 10) or 10
     from_name = getattr(settings, "email_from_name", "") or "饭搭子"
     sender = settings.smtp_user
+    scene = "注册" if purpose == "register" else "登录"
 
     message = EmailMessage()
-    message["Subject"] = f"{from_name}注册验证码：{code}"
+    message["Subject"] = f"{from_name}{scene}验证码：{code}"
     message["From"] = formataddr((from_name, sender))
     message["To"] = to_email
     message.set_content(
-        f"你的注册验证码是 {code}，{ttl} 分钟内有效。\n"
+        f"你的{scene}验证码是 {code}，{ttl} 分钟内有效。\n"
         f"如果不是你本人操作，请忽略这封邮件。\n\n—— {from_name}"
     )
 
