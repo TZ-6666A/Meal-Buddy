@@ -1366,28 +1366,18 @@
   </div>
   <p class="pd-sub" id="auth-sub">登录后，数据跟着账号走</p>
   <form id="auth-form" novalidate>
-    <label class="auth-field" id="auth-username-row"><span>用户名或邮箱</span>
-      <input id="auth-username" maxlength="24" autocomplete="username">
+    <label class="auth-field" id="auth-display-row" hidden><span>昵称（选填）</span>
+      <input id="auth-display" maxlength="20" autocomplete="nickname">
     </label>
-    <label class="auth-field" id="auth-password-row"><span>密码</span>
-      <input id="auth-password" type="password" maxlength="64" autocomplete="current-password">
-    </label>
-    <div id="auth-extra" hidden>
-      <label class="auth-field"><span>昵称（选填）</span>
-        <input id="auth-display" maxlength="20" autocomplete="nickname">
-      </label>
-      <label class="auth-field" id="auth-invite-row">
-        <span>邀请码</span>
-        <input id="auth-invite" maxlength="40" autocomplete="off">
-      </label>
-    </div>
-    <div class="auth-field" id="auth-email-row" hidden>
-      <span>邮箱</span>
+    <div class="auth-field" id="auth-email-row" hidden><span>邮箱</span>
       <div class="auth-code-row">
         <input id="auth-email" type="email" maxlength="254" autocomplete="email" placeholder="填 QQ 邮箱收验证码">
-        <button type="button" class="auth-send" id="auth-send">获取验证码</button>
+        <button type="button" class="auth-send" id="auth-send" hidden>获取验证码</button>
       </div>
     </div>
+    <label class="auth-field" id="auth-password-row" hidden><span>密码</span>
+      <input id="auth-password" type="password" maxlength="64" autocomplete="current-password">
+    </label>
     <div class="auth-field" id="auth-code-row" hidden>
       <span>邮箱验证码</span>
       <input id="auth-email-code" maxlength="6" inputmode="numeric" autocomplete="one-time-code" placeholder="6 位数字">
@@ -1428,8 +1418,8 @@
   // 请求收到 401 时弹登录框，登录成功后自动重试原请求。
   let currentUser = null;
   let authPromise = null;
-  // 注册方式由后端配置决定：配了 SMTP 发件账号走邮箱验证码，否则邀请码
-  let authCfg = { email_enabled: false, invite_required: true };
+  // 注册/验证码登录能力由后端配置决定：配了 SMTP 发件账号才开放
+  let authCfg = { email_enabled: false };
   let authCfgPromise = null;
   let sendCooldown = 0, sendTimer = null;
 
@@ -1438,7 +1428,7 @@
       authCfgPromise = fetch(`${api}/auth/config`)
         .then(res => res.ok ? res.json() : null)
         .then(data => {
-          if (data) authCfg = { email_enabled: !!data.email_enabled, invite_required: data.invite_required !== false };
+          if (data) authCfg = { email_enabled: !!data.email_enabled };
         })
         .catch(() => {})
         .finally(() => { authCfgPromise = null; });
@@ -1446,6 +1436,7 @@
     return authCfgPromise;
   }
 
+  // mode: login=邮箱+密码 | login-code=邮箱验证码免密 | register=注册
   function setAuthMode(mode) {
     $('auth-form').dataset.mode = mode;
     const emailOn = authCfg.email_enabled;
@@ -1454,23 +1445,22 @@
     const register = mode === 'register';
     $('auth-title').textContent = register ? '注册饭搭子' : '登录饭搭子';
     $('auth-sub').textContent = register
-      ? (emailOn ? '用邮箱验证码注册，数据跟着账号走' : '凭邀请码注册，每个人有自己的口味和记录')
+      ? '用 QQ 邮箱验证码注册，数据跟着账号走'
       : codeLogin ? '输入注册时绑定的邮箱，收验证码直接登录' : '登录后，数据跟着账号走';
-    // 注册只能用用户名；登录才能用邮箱代替
-    $('auth-username-row').querySelector('span').textContent = register ? '用户名' : '用户名或邮箱';
-    $('auth-username-row').hidden = !password;
-    $('auth-password-row').hidden = !password;
-    $('auth-extra').hidden = !register;
-    $('auth-email-row').hidden = !(emailOn && (register || codeLogin));
+    $('auth-display-row').hidden = !register;
+    $('auth-email-row').hidden = false;
+    $('auth-send').hidden = !(emailOn && (register || codeLogin));
+    $('auth-password-row').hidden = codeLogin;
     $('auth-code-row').hidden = !(emailOn && (register || codeLogin));
-    $('auth-invite-row').hidden = !register || emailOn || !authCfg.invite_required;
     $('auth-mode-switch').hidden = !emailOn || register;
     $('auth-mode-switch').textContent = codeLogin ? '用密码登录' : '用验证码登录';
-    if (!(register || codeLogin)) {
+    if (password) {
       clearInterval(sendTimer); sendCooldown = 0;
       $('auth-send').disabled = false;
       $('auth-send').textContent = '获取验证码';
     }
+    // 邮箱没开通时注册不开放，藏起注册入口
+    $('auth-switch').hidden = !emailOn;
     $('auth-switch').textContent = register ? '已有账号？去登录' : '没有账号？注册一个';
     $('auth-submit').textContent = register ? '注册并进入' : (codeLogin ? '验证码登录' : '登录');
     $('auth-error').textContent = '';
@@ -1482,7 +1472,7 @@
         await authConfig();
         setAuthMode('login');
         $('auth-password').value = '';
-        $('auth-username').focus();
+        $('auth-email').focus();
         $('auth-dialog').showModal();
         await new Promise(resolve => {
           $('auth-dialog').addEventListener('close', resolve, { once: true });
@@ -1553,7 +1543,7 @@
   $('auth-mode-switch').addEventListener('click', () => {
     const next = $('auth-form').dataset.mode === 'login-code' ? 'login' : 'login-code';
     setAuthMode(next);
-    (next === 'login-code' ? $('auth-email') : $('auth-username')).focus();
+    (next === 'login-code' ? $('auth-email') : $('auth-password')).focus();
   });
 
   $('auth-form').addEventListener('submit', async event => {
@@ -1568,25 +1558,23 @@
         return;
       }
       url = `${api}/auth/login/email-code`;
-    } else {
-      body = { username: $('auth-username').value.trim(), password: $('auth-password').value };
-      if (mode === 'register') {
-        url = `${api}/auth/register`;
-        const displayName = $('auth-display').value.trim();
-        if (displayName) body.display_name = displayName;
-        if (authCfg.email_enabled) {
-          body.email = $('auth-email').value.trim();
-          body.email_code = $('auth-email-code').value.trim();
-          if (!body.email || !body.email_code) {
-            $('auth-error').textContent = '邮箱和验证码都要填';
-            return;
-          }
-        } else if (authCfg.invite_required) {
-          body.invite_code = $('auth-invite').value.trim();
-        }
+    } else if (mode === 'register') {
+      body = {
+        email: $('auth-email').value.trim(),
+        email_code: $('auth-email-code').value.trim(),
+        password: $('auth-password').value,
+      };
+      const displayName = $('auth-display').value.trim();
+      if (displayName) body.display_name = displayName;
+      if (!body.email || !body.email_code || !body.password) {
+        $('auth-error').textContent = '邮箱、密码和验证码都要填';
+        return;
       }
+      url = `${api}/auth/register`;
+    } else {
+      body = { username: $('auth-email').value.trim(), password: $('auth-password').value };
       if (!body.username || !body.password) {
-        $('auth-error').textContent = '用户名和密码都要填';
+        $('auth-error').textContent = '邮箱和密码都要填';
         return;
       }
     }
@@ -1613,8 +1601,9 @@
     }
   });
   $('auth-switch').addEventListener('click', () => {
-    setAuthMode($('auth-form').dataset.mode === 'register' ? 'login' : 'register');
-    $('auth-username').focus();
+    const toRegister = $('auth-form').dataset.mode !== 'register';
+    setAuthMode(toRegister ? 'register' : 'login');
+    (toRegister ? $('auth-display') : $('auth-email')).focus();
   });
   // 没登录就不能关掉这个框：屏蔽 Esc 和点遮罩
   $('auth-dialog').addEventListener('cancel', event => event.preventDefault());
