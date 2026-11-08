@@ -7,11 +7,12 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 
-from app.api import public_router, router
+from app.accounts import ensure_bootstrap
+from app.api import admin_router, public_router, router
 from app.config import get_settings
-from app.db import missing_tables
+from app.db import SessionLocal, missing_tables
 from app.logging_config import setup_logging
-from app.security import require_token
+from app.security import get_current_user
 from app.services import watch
 from app.services.meal_assistant import close_clients
 
@@ -37,6 +38,11 @@ async def lifespan(_: FastAPI):
         raise RuntimeError(
             "数据库缺少表：" + "、".join(absent) + "。请先执行 alembic upgrade head（见 docs/migrations.md）。"
         )
+    # 账号引导（幂等）：确保管理员存在，历史无主数据归入管理员名下。
+    with SessionLocal() as bootstrap_db:
+        moved = ensure_bootstrap(bootstrap_db)
+    if moved:
+        logger.info("bootstrap_backfilled user_rows=%d", moved)
     try:
         yield
     finally:
@@ -54,7 +60,8 @@ app.add_middleware(
     allow_headers=["Content-Type", "Authorization", "X-API-Token"],
 )
 app.include_router(public_router)
-app.include_router(router, dependencies=[Depends(require_token)])
+app.include_router(admin_router)
+app.include_router(router, dependencies=[Depends(get_current_user)])
 
 WEB_PAGE_PATH = Path(__file__).with_name("web").joinpath("index.html")
 

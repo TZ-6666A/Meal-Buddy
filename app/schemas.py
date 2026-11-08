@@ -258,3 +258,70 @@ class FeedbackRead(BaseModel):
 
 class PruneRequest(BaseModel):
     days: int = Field(default=90, ge=1, le=3650)
+
+
+class RegisterRequest(BaseModel):
+    username: str = Field(min_length=2, max_length=40)
+    password: str = Field(min_length=8, max_length=128)
+    display_name: str | None = Field(default=None, max_length=40)
+    invite_code: str = Field(default="", max_length=80)
+
+    @field_validator("username", "password", "invite_code")
+    @classmethod
+    def strip_text(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("display_name")
+    @classmethod
+    def strip_display_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+
+class LoginRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=40)
+    password: str = Field(min_length=1, max_length=128)
+
+    @field_validator("username", "password")
+    @classmethod
+    def strip_text(cls, value: str) -> str:
+        return value.strip()
+
+
+class UserRead(BaseModel):
+    username: str
+    display_name: str | None
+    is_admin: bool
+
+    model_config = {"from_attributes": True}
+
+
+class PasswordResetRequest(BaseModel):
+    new_password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def strip_text(cls, value: str) -> str:
+        return value.strip()
+
+
+class AdminUserCreate(BaseModel):
+    username: str = Field(min_length=2, max_length=40)
+    password: str = Field(min_length=8, max_length=128)
+    display_name: str | None = Field(default=None, max_length=40)
+    is_admin: bool = False
+
+    @field_validator("username", "password")
+    @classmethod
+    def strip_text(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("display_name")
+    @classmethod
+    def strip_display_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None

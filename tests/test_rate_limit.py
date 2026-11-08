@@ -8,10 +8,11 @@ def test_recommendation_rate_limit_returns_429_on_eleventh_request(client, monke
     from app import api
     # Replace the function imported by the limiter; no model or database call is made.
     monkeypatch.setattr(
-        "app.rate_limit.get_settings", lambda: SimpleNamespace(rate_limit_per_minute=10)
+        "app.rate_limit.get_settings",
+        lambda: SimpleNamespace(rate_limit_per_minute=10, auth_rate_limit_per_minute=5),
     )
 
-    async def fake_recommendation(payload, db):
+    async def fake_recommendation(payload, db, user_id, notify=None):
         return RecommendationResponse(explanation="test", recipes=[], source="demo")
 
     monkeypatch.setattr(api, "_build_recommendation", fake_recommendation)

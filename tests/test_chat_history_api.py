@@ -2,11 +2,11 @@ from app.models import ChatMessage
 from app.services.meal_assistant import build_chat_messages
 
 
-def test_chat_history_returns_role_content_and_chronological_order(client):
+def test_chat_history_returns_role_content_and_chronological_order(client, dev_user_id):
     with client.testing_session() as db:
         db.add_all([
-            ChatMessage(role="user", content="先问一句"),
-            ChatMessage(role="agent", content="先答一句"),
+            ChatMessage(user_id=dev_user_id, role="user", content="先问一句"),
+            ChatMessage(user_id=dev_user_id, role="agent", content="先答一句"),
         ])
         db.commit()
 
@@ -19,7 +19,7 @@ def test_chat_history_returns_role_content_and_chronological_order(client):
     ]
 
 
-def test_chat_context_keeps_six_recent_messages_and_summarizes_older(client, monkeypatch):
+def test_chat_context_keeps_six_recent_messages_and_summarizes_older(client, dev_user_id, monkeypatch):
     captured = {}
 
     async def fake_chat(message, notes, history=None, earlier_summary=""):
@@ -33,7 +33,7 @@ def test_chat_context_keeps_six_recent_messages_and_summarizes_older(client, mon
     monkeypatch.setattr("app.api.agent.chat", fake_chat)
     with client.testing_session() as db:
         db.add_all([
-            ChatMessage(role="user" if i % 2 == 0 else "agent", content=f"早期想吃豆腐 第{i}")
+            ChatMessage(user_id=dev_user_id, role="user" if i % 2 == 0 else "agent", content=f"早期想吃豆腐 第{i}")
             for i in range(10)
         ])
         db.commit()

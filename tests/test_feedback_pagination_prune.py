@@ -32,10 +32,10 @@ def test_feedback_rejects_unknown_dish_and_updates_duplicate(client):
         assert db.query(RecommendationFeedback).count() == 1
 
 
-def test_explicit_dish_reactions_are_saved_to_taste(client):
+def test_explicit_dish_reactions_are_saved_to_taste(client, dev_user_id):
     with client.testing_session() as db:
         session = DecisionSession(
-            mode="takeout", drawn=["红烧茄子", "番茄炒蛋"], finished=True
+            user_id=dev_user_id, mode="takeout", drawn=["红烧茄子", "番茄炒蛋"], finished=True
         )
         db.add(session)
         db.commit()
@@ -67,15 +67,15 @@ def test_meal_pagination_caps_limit_and_offset_past_end(client):
     assert client.get("/api/v1/meals?offset=99").json() == []
 
 
-def test_prune_only_removes_old_chat_and_finished_sessions(client):
+def test_prune_only_removes_old_chat_and_finished_sessions(client, dev_user_id):
     old = datetime.now(timezone.utc) - timedelta(days=120)
     recent = datetime.now(timezone.utc) - timedelta(days=2)
     with client.testing_session() as db:
         db.add_all([
-            ChatMessage(role="user", content="旧消息", created_at=old),
-            ChatMessage(role="agent", content="新消息", created_at=recent),
-            DecisionSession(mode="takeout", finished=True, created_at=old),
-            DecisionSession(mode="takeout", finished=False, created_at=old),
+            ChatMessage(user_id=dev_user_id, role="user", content="旧消息", created_at=old),
+            ChatMessage(user_id=dev_user_id, role="agent", content="新消息", created_at=recent),
+            DecisionSession(user_id=dev_user_id, mode="takeout", finished=True, created_at=old),
+            DecisionSession(user_id=dev_user_id, mode="takeout", finished=False, created_at=old),
         ])
         db.commit()
 

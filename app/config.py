@@ -13,7 +13,15 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o-mini"
     openai_reasoning_effort: str = ""
     api_token: str = ""
+    # 登录系统：管理员引导账号 + 邀请码注册 + 会话时长
+    admin_username: str = "admin"
+    admin_password: str = ""
+    invite_code: str = ""
+    session_ttl_days: int = 30
+    # 开发/测试免登录旁路；生产环境固定走 Cookie 会话
+    dev_auto_login: bool = True
     rate_limit_per_minute: int = 10
+    auth_rate_limit_per_minute: int = 5
     allowed_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     amap_key: str = ""
     daily_token_budget: int = 0
@@ -40,6 +48,11 @@ class Settings(BaseSettings):
             )
         if len(self.api_token) < 16:
             raise RuntimeError("生产环境的 API_TOKEN 至少 16 个字符。")
+        if len(self.admin_password) < 8:
+            raise RuntimeError(
+                "生产环境必须设置 ADMIN_PASSWORD（至少 8 位）：用于首次启动引导管理员账号，"
+                "历史数据会归入该账号名下。"
+            )
         if "change_me" in self.database_url:
             raise RuntimeError("生产环境的 DATABASE_URL 仍是示例密码，请改成真实凭据。")
 

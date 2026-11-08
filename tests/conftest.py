@@ -28,15 +28,23 @@ def client(tmp_path, monkeypatch):
     # Tests never depend on real .env credentials, tokens, budgets, or model access.
     monkeypatch.setattr(
         "app.security.get_settings",
-        lambda: SimpleNamespace(api_token="", is_production=False),
+        lambda: SimpleNamespace(
+            api_token="",
+            is_production=False,
+            admin_username="admin",
+            admin_password="",
+            invite_code="",
+            session_ttl_days=30,
+            dev_auto_login=True,
+        ),
     )
     monkeypatch.setattr(
         "app.rate_limit.get_settings",
-        lambda: SimpleNamespace(rate_limit_per_minute=10),
+        lambda: SimpleNamespace(rate_limit_per_minute=10, auth_rate_limit_per_minute=5),
     )
     monkeypatch.setattr(
         "app.api.get_settings",
-        lambda: SimpleNamespace(daily_token_budget=0),
+        lambda: SimpleNamespace(daily_token_budget=0, invite_code=""),
     )
     monkeypatch.setattr(
         "app.services.meal_assistant.get_settings",
@@ -65,6 +73,21 @@ def client(tmp_path, monkeypatch):
     test_client.testing_session = TestingSession
     yield test_client
     app.dependency_overrides.clear()
+
+
+@pytest.fixture()
+def dev_user_id(client):
+    """确保开发旁路用户存在并返回其 id，供测试直接插表时补归属列。"""
+    from app.accounts import hash_password
+    from app.models import User
+
+    with client.testing_session() as session:
+        user = session.query(User).filter_by(username="dev").one_or_none()
+        if user is None:
+            user = User(username="dev", password_hash=hash_password("dev12345"), is_admin=True)
+            session.add(user)
+            session.commit()
+        return user.id
 
 
 @pytest.fixture()

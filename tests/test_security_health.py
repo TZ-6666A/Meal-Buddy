@@ -3,8 +3,10 @@ from types import SimpleNamespace
 import pytest
 from starlette.requests import Request
 
+from app.accounts import hash_password
 from app.config import Settings
 from app.db import get_db
+from app.models import User
 from app.security import client_host
 
 
@@ -54,10 +56,20 @@ def test_health_reports_database_failure_as_503(client):
     assert response.json()["detail"] == "数据库不可用"
 
 
-def test_health_and_token_protected_meals(client, monkeypatch):
+def _seed_admin(client, username="admin", password="admin-pass-123"):
+    with client.testing_session() as session:
+        user = User(username=username, password_hash=hash_password(password), is_admin=True)
+        session.add(user)
+        session.commit()
+        return user.id
+
+
+def test_token_header_maps_to_admin_account(client, monkeypatch):
     monkeypatch.setattr(
-        "app.security.get_settings", lambda: SimpleNamespace(api_token="test-secret")
+        "app.security.get_settings",
+        lambda: SimpleNamespace(api_token="test-secret", is_production=False, dev_auto_login=False),
     )
+    _seed_admin(client)
 
     health = client.get("/api/v1/health")
     assert health.status_code == 200
@@ -68,16 +80,29 @@ def test_health_and_token_protected_meals(client, monkeypatch):
     assert client.get("/api/v1/meals", headers={"X-API-Token": "test-secret"}).status_code == 200
 
 
-def test_sensitive_endpoints_require_token_when_configured(client, monkeypatch):
+def test_wrong_token_rejected_even_in_dev(client, monkeypatch):
     monkeypatch.setattr(
         "app.security.get_settings",
-        lambda: SimpleNamespace(api_token="s3cret-token-value", is_production=True),
+        lambda: SimpleNamespace(api_token="test-secret", is_production=False, dev_auto_login=True),
+    )
+    # 配了 API_TOKEN 就不再走开发免登录旁路，乱给的 token 一律 401。
+    assert client.get("/api/v1/meals", headers={"X-API-Token": "wrong"}).status_code == 401
+    assert client.get("/api/v1/meals").status_code == 401
+
+
+def test_sensitive_endpoints_require_login_when_token_configured(client, monkeypatch):
+    monkeypatch.setattr(
+        "app.security.get_settings",
+        lambda: SimpleNamespace(
+            api_token="s3cret-token-value", is_production=True, dev_auto_login=False
+        ),
     )
 
     assert client.get("/api/v1/export").status_code == 401
     assert client.post("/api/v1/maintenance/prune", json={"days": 90}).status_code == 401
     assert client.request("DELETE", "/api/v1/data", json={"confirm": "DELETE"}).status_code == 401
 
+    _seed_admin(client)
     allowed = client.get(
         "/api/v1/export", headers={"X-API-Token": "s3cret-token-value"}
     )
@@ -85,27 +110,23 @@ def test_sensitive_endpoints_require_token_when_configured(client, monkeypatch):
     assert allowed.headers["cache-control"] == "no-store"
 
 
-def test_sensitive_endpoints_deny_remote_callers_when_token_missing(client, monkeypatch):
+def test_no_auth_when_dev_auto_login_disabled(client, monkeypatch):
     monkeypatch.setattr(
         "app.security.get_settings",
-        lambda: SimpleNamespace(api_token="", is_production=False),
+        lambda: SimpleNamespace(api_token="", is_production=False, dev_auto_login=False),
     )
-    monkeypatch.setattr("app.security.client_host", lambda request: "192.168.1.20")
-
-    assert client.get("/api/v1/export").status_code == 403
-    assert client.post("/api/v1/maintenance/prune", json={"days": 90}).status_code == 403
-    # 普通接口不受影响，本地开发仍然可用。
-    assert client.get("/api/v1/meals").status_code == 200
+    assert client.get("/api/v1/export").status_code == 401
+    assert client.get("/api/v1/meals").status_code == 401
 
 
-def test_sensitive_endpoints_allow_loopback_when_token_missing(client, monkeypatch):
+def test_dev_auto_login_grants_admin_access(client, monkeypatch):
     monkeypatch.setattr(
         "app.security.get_settings",
-        lambda: SimpleNamespace(api_token="", is_production=False),
+        lambda: SimpleNamespace(api_token="", is_production=False, dev_auto_login=True),
     )
-    monkeypatch.setattr("app.security.client_host", lambda request: "127.0.0.1")
-
     assert client.get("/api/v1/export").status_code == 200
+    # dev 用户是管理员，可以执行全站清理。
+    assert client.post("/api/v1/maintenance/prune", json={"days": 90}).status_code == 200
 
 
 def test_production_startup_requires_api_token():
@@ -115,9 +136,28 @@ def test_production_startup_requires_api_token():
     with pytest.raises(RuntimeError, match="16"):
         Settings(_env_file=None, app_env="production", api_token="short").validate_for_startup()
 
+    with pytest.raises(RuntimeError, match="ADMIN_PASSWORD"):
+        Settings(
+            _env_file=None,
+            app_env="production",
+            api_token="a" * 20,
+            admin_password="",
+            database_url="postgresql+psycopg://user:pw@127.0.0.1:5433/fandazi",
+        ).validate_for_startup()
+
+    with pytest.raises(RuntimeError, match="ADMIN_PASSWORD"):
+        Settings(
+            _env_file=None,
+            app_env="production",
+            api_token="a" * 20,
+            admin_password="short",
+            database_url="postgresql+psycopg://user:pw@127.0.0.1:5433/fandazi",
+        ).validate_for_startup()
+
     Settings(
         _env_file=None,
         app_env="production",
         api_token="a" * 20,
+        admin_password="long-enough-pass",
         database_url="postgresql+psycopg://user:pw@127.0.0.1:5433/fandazi",
     ).validate_for_startup()

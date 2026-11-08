@@ -24,6 +24,8 @@ def get_db() -> Generator[Session, None, None]:
 
 
 REQUIRED_TABLES = (
+    "users",
+    "user_sessions",
     "meal_entries",
     "pantry_items",
     "preference_notes",

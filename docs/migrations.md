@@ -8,6 +8,10 @@
 
 - 初始迁移：`migrations/versions/0001_initial_schema.py`
 - 覆盖：`meal_entries`、`pantry_items`、`preference_notes`、`decision_sessions`、`chat_messages`、`recommendation_feedback`，以及 `updated_at`、常用索引和反馈表约束。
+- 登录系统迁移：`migrations/versions/0002_users_and_ownership.py`
+  - 新增 `users`、`user_sessions` 两张表；
+  - 五张业务表加 `user_id` 归属列（可空，应用启动引导会把历史 NULL 行归到管理员名下）并幂等补外键；
+  - `pantry_items` 的食材名唯一索引从全局唯一改为 `(user_id, lower(name))` 按用户唯一。
 - 迁移里的 DDL 使用 `IF NOT EXISTS`，因此历史上由 `create_all` + `sql/*.sql` 建出来的库可以直接升级，不会因为表已存在而失败。
 - 应用启动时**不再**自动建表。表缺失会直接报错并提示执行 `alembic upgrade head`。
 

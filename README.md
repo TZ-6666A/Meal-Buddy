@@ -108,28 +108,28 @@ sudo systemctl status caddy
 `APP_ENV` 默认为 `development`。设为 `production` 时，启动会强制检查：
 
 - `API_TOKEN` 必须存在且至少 16 个字符，否则拒绝启动；
+- `ADMIN_PASSWORD` 必须存在且至少 8 位（用于首次启动引导管理员账号）；
 - `DATABASE_URL` 不能还是示例密码 `change_me`。
 
-`GET /api/v1/health` 公开；其余 `/api/v1` 路由在配置了 `API_TOKEN` 后都需要 `X-API-Token` 头。
+### 账号与登录
 
-导出、清理、删除这三类敏感接口额外受 `require_sensitive_access` 保护：
+网页端使用用户名 + 密码登录，会话由后端签发的 **HttpOnly Cookie** 承载（前端不保存任何凭据）：
 
-- 配了 `API_TOKEN`：必须带正确的 token；
-- 没配 token：只允许本机（loopback）访问，避免把开发服务开到 `0.0.0.0` 后局域网里任何人都能导出或清空数据；
-- 导出响应带 `Cache-Control: no-store`，并记录调用方和导出条数；清理和清空同样写审计日志。
+- 新用户通过**邀请码注册**（`INVITE_CODE`，留空表示关闭注册）；
+- 数据全部按账号隔离：吃饭记录、库存、口味、聊天、决策会话各归各的账号；
+- 登录会话默认 30 天（`SESSION_TTL_DAYS`），密码用 scrypt 哈希存储；
+- 首次启动引导管理员账号（`ADMIN_USERNAME`/`ADMIN_PASSWORD`），历史数据自动归入其名下；
+- 管理员登录后页面多出「管理」入口：用户管理（建号/重置密码/停用启用）、使用统计（用户量、记录量、AI 调用与花费）、查看用户数据（只读）。
 
-客户端**不再把 Token 写死在源码里**：
+`X-API-Token` 仍保留为**脚本通道**：携带正确 token 的请求映射到管理员账号，供命令行/自动化调用。`GET /api/v1/health` 公开。
 
-- 鸿蒙端：`entry/build-profile.json5` 的 `buildProfileFields.API_TOKEN`，由 `ApiConfig.ets` 读取；
-- 网页端：`app/web/index.html` 从当前标签页的 `sessionStorage` 读取，401 时弹窗输入。
+敏感操作权限：
 
-嵌在客户端里的 token 仍然可能被提取，这只是单用户原型的局域网防护，不等于用户身份认证。
+- `/export`、`DELETE /data`：登录用户，且只作用于**自己的**数据（导出响应带 `Cache-Control: no-store` 并写审计日志）；
+- `/maintenance/prune`、`/usage`、`/admin/*`：仅管理员；
+- `/auth/register`、`/auth/login` 有独立的按 IP 限流，防止在线爆破。
 
-### 数据隔离
-
-当前产品是**单用户本地原型**：没有账号体系，`API_TOKEN` 是共享口令，不是用户身份。因此没有为记录、库存、偏好、聊天加 `owner_id`。
-
-如果要支持多用户，最小改动是：给所有业务表加 `owner_id`，在 `get_db` 之外增加“当前用户”依赖，并在每个查询和删除上加 `where owner_id = current_user`；同时把共享 token 换成真正的登录态。在这些需求确定之前，不做半套身份系统。
+开发模式（`APP_ENV=development` 且未配 `API_TOKEN`）默认免登录，自动以 `dev` 管理员身份运行；想本地体验真实登录流程，在 `.env` 设 `DEV_AUTO_LOGIN=false` 后重启，浏览器打开页面即可注册/登录。
 
 ## API
 
