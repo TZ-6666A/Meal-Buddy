@@ -416,6 +416,44 @@
   .pd-action.danger{color:var(--danger);border-color:#e6c9c3}
   .pd-action.danger:hover{background:#F8E6E2;border-color:var(--danger);color:var(--danger)}
 
+  /* ---------- 登录与管理 ---------- */
+  .prefs-btn[hidden]{display:none}
+  #auth-dialog{width:min(360px,calc(100% - 28px))}
+  #admin-dialog{width:min(560px,calc(100% - 28px));max-height:min(80vh,620px)}
+  #admin-dialog[open]{display:flex;flex-direction:column}
+  .auth-field{display:grid;gap:4px;margin-bottom:10px}
+  .auth-field span{font-size:var(--fs-micro);color:var(--muted)}
+  .auth-field input{height:42px;padding:0 14px;border-radius:var(--r-input);border:1px solid var(--line);
+    background:var(--sunken);outline:0;font-size:var(--fs-body)}
+  .auth-field input:focus{border-color:var(--brand)}
+  .auth-error{min-height:18px;margin:2px 0 8px;font-size:var(--fs-micro);color:var(--danger)}
+  .auth-submit{width:100%;height:44px;border-radius:var(--r-pill);background:var(--brand);color:#fff;
+    font-weight:600;font-size:var(--fs-body)}
+  .auth-submit:disabled{opacity:.6}
+  .auth-switch{width:100%;margin-top:10px;text-align:center;font-size:var(--fs-micro);color:var(--muted)}
+  .auth-switch:hover{color:var(--brand)}
+  .admin-tabs{display:flex;gap:6px;margin-bottom:var(--s3)}
+  .admin-tab{flex:1;height:32px;border-radius:var(--r-pill);background:var(--sunken);color:var(--muted);
+    font-size:var(--fs-micro)}
+  .admin-tab[aria-selected="true"]{background:var(--brand);color:#fff;font-weight:600}
+  .admin-table{width:100%;border-collapse:collapse;font-size:var(--fs-micro)}
+  .admin-table th{text-align:left;color:var(--faint);font-weight:600;padding:4px 6px}
+  .admin-table td{padding:7px 6px;border-top:1px solid var(--line);vertical-align:middle}
+  .admin-num{color:var(--ink-soft);white-space:nowrap}
+  .admin-acts{white-space:nowrap;text-align:right}
+  .admin-acts button{padding:3px 9px;border-radius:999px;border:1px solid var(--line);color:var(--muted);
+    font-size:11px}
+  .admin-acts button:hover{border-color:var(--brand);color:var(--brand)}
+  .admin-tag{color:var(--brand);font-weight:600}
+  .admin-tag.off{color:var(--danger)}
+  .admin-lines{font-size:var(--fs-meta);color:var(--ink-soft);line-height:1.8}
+  .admin-line{font-size:var(--fs-meta);color:var(--ink-soft);line-height:1.7;
+    border-bottom:1px dashed var(--line);padding:3px 0}
+  .stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:var(--s3)}
+  .stat-card{background:var(--sunken);border-radius:var(--r-input);padding:10px 8px;text-align:center}
+  .stat-card b{display:block;font-size:20px;color:var(--brand)}
+  .stat-card span{font-size:10px;color:var(--muted)}
+
   /* ---------- modes ---------- */
   .modes{display:grid;grid-template-columns:repeat(4,1fr);gap:var(--s1);margin:var(--s2) 0 var(--s3);
     padding:3px;background:var(--sunken);border-radius:12px}
@@ -780,8 +818,10 @@
   .watch-video-card:hover{border-color:#97b8a3;transform:translateY(-2px)}
   .watch-video-cover{position:relative;overflow:hidden;aspect-ratio:16/9;background:#e8efea}
   .watch-video-cover img{display:block;width:100%;height:100%;object-fit:cover}
-  .watch-video-cover.is-missing{display:grid;place-items:center;background:#e8efea}
-  .watch-video-cover.is-missing::after{content:"哔哩哔哩";color:#72867a;font-size:13px;font-weight:650}
+  .watch-video-cover.is-retrying img{visibility:hidden}
+  .watch-video-cover.is-missing{display:grid;place-items:center;
+    background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 21' fill='none' stroke='%239db3a6' stroke-width='1.7' stroke-linecap='round'%3E%3Cpath d='M7.4 1.5 10 5h4l2.6-3.5'/%3E%3Crect x='2' y='5' width='20' height='14' rx='3.6'/%3E%3Cpath d='M8.3 10.3v3.4M15.7 10.3v3.4'/%3E%3C/svg%3E") center calc(50% - 34px)/44px 38px no-repeat,linear-gradient(155deg,#f1f6f2,#dfeae2)}
+  .watch-video-cover.is-missing::after{content:"封面走丢了";margin-top:28px;color:#8ca396;font-size:12px;font-weight:600;letter-spacing:.05em}
   .watch-video-cover::before{position:absolute;z-index:1;right:8px;bottom:8px;content:"B站";padding:2px 6px;
     border-radius:4px;background:#17231db8;color:#fff;font-size:10px}
   .watch-video-copy{padding:11px 12px 12px}
@@ -894,6 +934,14 @@
         <button class="prefs-btn" id="prefs-open" type="button">
           <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-4.6 7-10.4A7 7 0 0 0 5 10.6C5 16.4 12 21 12 21Z"/><circle cx="12" cy="10.2" r="2.4"/></svg>
           <span>我的口味</span><span class="badge" id="prefs-count">0</span>
+        </button>
+        <button class="prefs-btn" id="admin-open" type="button" hidden>
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4 6v6c0 4.4 3.4 7.9 8 9 4.6-1.1 8-4.6 8-9V6Z"/></svg>
+          <span>管理</span>
+        </button>
+        <button class="prefs-btn" id="user-chip" type="button" hidden title="点击退出登录">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c1.8-3.4 4.6-5 8-5s6.2 1.6 8 5"/></svg>
+          <span id="user-name"></span>
         </button>
         <span class="stamp" id="stamp">今天</span>
       </div>
@@ -1305,56 +1353,141 @@
   <div class="hist-body" id="history-body"></div>
 </dialog>
 
+<dialog id="auth-dialog">
+  <div class="pd-head">
+    <h2 id="auth-title">登录饭搭子</h2>
+  </div>
+  <p class="pd-sub" id="auth-sub">登录后，数据跟着账号走</p>
+  <form id="auth-form" novalidate>
+    <label class="auth-field"><span>用户名</span>
+      <input id="auth-username" maxlength="24" autocomplete="username">
+    </label>
+    <label class="auth-field"><span>密码</span>
+      <input id="auth-password" type="password" maxlength="64" autocomplete="current-password">
+    </label>
+    <div id="auth-extra" hidden>
+      <label class="auth-field"><span>昵称（选填）</span>
+        <input id="auth-display" maxlength="20" autocomplete="nickname">
+      </label>
+      <label class="auth-field"><span>邀请码</span>
+        <input id="auth-invite" maxlength="40" autocomplete="off">
+      </label>
+    </div>
+    <p class="auth-error" id="auth-error" role="alert"></p>
+    <button class="auth-submit" id="auth-submit" type="submit">登录</button>
+    <button class="auth-switch" id="auth-switch" type="button">没有账号？注册一个</button>
+  </form>
+</dialog>
+
+<dialog id="admin-dialog">
+  <div class="pd-head">
+    <h2>管理</h2>
+    <button class="pd-close" id="admin-close" type="button" aria-label="关闭">×</button>
+  </div>
+  <nav class="admin-tabs" role="tablist" aria-label="管理面板">
+    <button type="button" class="admin-tab" data-tab="users" aria-selected="true">用户管理</button>
+    <button type="button" class="admin-tab" data-tab="stats" aria-selected="false">使用统计</button>
+    <button type="button" class="admin-tab" data-tab="data" aria-selected="false">用户数据</button>
+  </nav>
+  <div class="pd-body">
+    <section id="admin-pane-users"></section>
+    <section id="admin-pane-stats" hidden></section>
+    <section id="admin-pane-data" hidden></section>
+  </div>
+</dialog>
+
 <script>
   const api = '/api/v1';
-  // 不把 Token 固定写进源码：只存在当前标签页的 sessionStorage 里。
-  // 后端返回 401 时再提示输入，避免把生产 Token 带进仓库。
-  const TOKEN_KEY = 'fandazi-api-token';
-  const getToken = () => sessionStorage.getItem(TOKEN_KEY) || '';
-  // window.prompt 会同步阻塞主线程：并发请求都收到 401 时，
-  // 只有最先处理的那个能弹框，其余请求必须靠"TOKEN 是否已就绪"来跳过弹框。
-  let tokenPromptPromise = null;
-  let tokenPromptDeclined = false;
-  function promptForToken() {
-    if (tokenPromptDeclined) {
-      return Promise.resolve();
-    }
-    if (!tokenPromptPromise) {
-      tokenPromptPromise = Promise.resolve().then(() => {
-        const entered = window.prompt('这个服务需要 API_TOKEN，请输入后继续（只保存在当前标签页）');
-        if (entered && entered.trim()) {
-          sessionStorage.setItem(TOKEN_KEY, entered.trim());
-        } else {
-          tokenPromptDeclined = true;
-        }
-      }).finally(() => {
-        tokenPromptPromise = null;
-      });
-    }
-    return tokenPromptPromise;
-  }
-  async function apiFetch(url, options = {}, retried = false) {
-    const tokenBefore = getToken();
-    const headers = new Headers(options.headers || {});
-    if (tokenBefore) headers.set('X-API-Token', tokenBefore);
-    const res = await fetch(url, { ...options, headers });
-    if (res.status === 401 && !retried) {
-      // 本次请求发出时还没有 TOKEN，但返回 401 时别的请求已经把它存好了：直接重试。
-      const current = getToken();
-      if (current && current !== tokenBefore) {
-        return apiFetch(url, options, true);
-      }
-      await promptForToken();
-      if (getToken()) {
-        return apiFetch(url, options, true);
-      }
-    }
-    return res;
-  }
   const $ = id => document.getElementById(id);
   const pad = n => String(n).padStart(2, '0');
   const dateKey = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   const escapeHtml = v => String(v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+  // ---------- 登录态 ----------
+  // 会话由后端 HttpOnly Cookie 承载，前端不保存任何凭据；
+  // 请求收到 401 时弹登录框，登录成功后自动重试原请求。
+  let currentUser = null;
+  let authPromise = null;
+
+  function setAuthMode(mode) {
+    $('auth-form').dataset.mode = mode;
+    const register = mode === 'register';
+    $('auth-title').textContent = register ? '注册饭搭子' : '登录饭搭子';
+    $('auth-sub').textContent = register ? '凭邀请码注册，每个人有自己的口味和记录' : '登录后，数据跟着账号走';
+    $('auth-extra').hidden = !register;
+    $('auth-switch').textContent = register ? '已有账号？去登录' : '没有账号？注册一个';
+    $('auth-submit').textContent = register ? '注册并进入' : '登录';
+    $('auth-error').textContent = '';
+  }
+
+  function ensureLoggedIn() {
+    if (!authPromise) {
+      authPromise = (async () => {
+        setAuthMode('login');
+        $('auth-password').value = '';
+        $('auth-username').focus();
+        $('auth-dialog').showModal();
+        await new Promise(resolve => {
+          $('auth-dialog').addEventListener('close', resolve, { once: true });
+        });
+      })().finally(() => { authPromise = null; });
+    }
+    return authPromise;
+  }
+
+  async function apiFetch(url, options = {}, retried = false) {
+    const res = await fetch(url, options);
+    if (res.status === 401 && !retried) {
+      await ensureLoggedIn();
+      return apiFetch(url, options, true);
+    }
+    return res;
+  }
+
+  $('auth-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    const mode = $('auth-form').dataset.mode || 'login';
+    const body = { username: $('auth-username').value.trim(), password: $('auth-password').value };
+    if (mode === 'register') {
+      body.invite_code = $('auth-invite').value.trim();
+      const displayName = $('auth-display').value.trim();
+      if (displayName) body.display_name = displayName;
+    }
+    if (!body.username || !body.password) {
+      $('auth-error').textContent = '用户名和密码都要填';
+      return;
+    }
+    $('auth-error').textContent = '';
+    $('auth-submit').disabled = true;
+    try {
+      const res = await fetch(`${api}/auth/${mode}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        $('auth-error').textContent = data.detail || '出错了，再试一次';
+        return;
+      }
+      currentUser = data;
+      applyUserUI();
+      $('auth-dialog').close();
+    } catch (e) {
+      $('auth-error').textContent = '网络不给力，稍后再试';
+    } finally {
+      $('auth-submit').disabled = false;
+    }
+  });
+  $('auth-switch').addEventListener('click', () => {
+    setAuthMode($('auth-form').dataset.mode === 'register' ? 'login' : 'register');
+    $('auth-username').focus();
+  });
+  // 没登录就不能关掉这个框：屏蔽 Esc 和点遮罩
+  $('auth-dialog').addEventListener('cancel', event => event.preventDefault());
+  $('auth-dialog').addEventListener('click', event => {
+    if (event.target === $('auth-dialog')) event.preventDefault();
+  });
 
   let hours = 0, minutes = 30, weekOffset = 0, weekMeals = [];
   let selectedDay = dateKey(new Date()), selectedType = '晚餐';
@@ -1822,7 +1955,11 @@
   async function resumeDecision(id) {
     try {
       const res = await apiFetch(`${api}/decisions/${id}`);
-      if (!res.ok) return false;
+      if (!res.ok) {
+        // 会话不存在（比如同一标签页换了账号登录）：清掉旧引用，重新开始
+        sessionStorage.removeItem('fandazi-decision');
+        return false;
+      }
       const next = await res.json();
       applySession(next);
       if (next.mode === 'takeout' && next.location_data_version < 4 && sessionStorage.getItem('fandazi-geo')) {
@@ -2012,6 +2149,162 @@
       if (hours * 60 + minutes < 5) { hours = 0; minutes = 5; }
       syncTimes(); $('duration-dialog').close();
     };
+  }
+
+  /* ---------- 用户区与管理面板 ---------- */
+  function applyUserUI() {
+    if (!currentUser) return;
+    $('user-name').textContent = currentUser.display_name || currentUser.username;
+    $('user-chip').hidden = false;
+    $('admin-open').hidden = !currentUser.is_admin;
+  }
+
+  $('user-chip').addEventListener('click', async () => {
+    if (!window.confirm('退出登录？')) return;
+    try { await fetch(`${api}/auth/logout`, { method: 'POST' }); } catch (e) { /* 忽略 */ }
+    // 换账号后旧的决策会话引用必须清掉，否则新账号会续上别人的会话
+    sessionStorage.removeItem('fandazi-decision');
+    location.reload();
+  });
+
+  let adminUsersCache = [];
+
+  function switchAdminTab(tab) {
+    for (const btn of document.querySelectorAll('.admin-tab')) {
+      btn.setAttribute('aria-selected', String(btn.dataset.tab === tab));
+    }
+    $('admin-pane-users').hidden = tab !== 'users';
+    $('admin-pane-stats').hidden = tab !== 'stats';
+    $('admin-pane-data').hidden = tab !== 'data';
+    if (tab === 'users') loadAdminUsers();
+    if (tab === 'stats') loadAdminStats();
+    if (tab === 'data') loadAdminData();
+  }
+
+  async function loadAdminUsers() {
+    const pane = $('admin-pane-users');
+    pane.innerHTML = '<p class="pd-empty">加载中…</p>';
+    const res = await apiFetch(`${api}/admin/users`);
+    if (!res.ok) { pane.innerHTML = '<p class="pd-empty">加载失败，稍后再试</p>'; return; }
+    const users = await res.json();
+    adminUsersCache = users;
+    pane.innerHTML = `
+      <table class="admin-table">
+        <thead><tr><th>用户</th><th>数据</th><th>最近登录</th><th></th></tr></thead>
+        <tbody>
+          ${users.map(u => `
+            <tr>
+              <td>${escapeHtml(u.display_name || u.username)}${u.is_admin ? ' <b class="admin-tag">管理</b>' : ''}${u.is_active ? '' : ' <b class="admin-tag off">已停用</b>'}</td>
+              <td class="admin-num">${u.meals || 0} 吃 · ${u.decisions || 0} 决策</td>
+              <td class="admin-num">${u.last_login_at ? new Date(u.last_login_at).toLocaleDateString() : '—'}</td>
+              <td class="admin-acts">
+                <button type="button" data-act="reset" data-id="${u.id}">重置密码</button>
+                <button type="button" data-act="toggle" data-id="${u.id}">${u.is_active ? '停用' : '启用'}</button>
+              </td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+      <form class="pd-add" id="admin-create">
+        <input id="admin-new-name" placeholder="用户名" maxlength="24">
+        <input id="admin-new-pass" placeholder="初始密码（至少8位）" maxlength="40" style="flex:1;min-width:0;height:38px;padding:0 10px;border-radius:12px;border:1px solid var(--line);background:var(--sunken);outline:0">
+        <button type="submit">建号</button>
+      </form>`;
+    pane.querySelector('#admin-create').addEventListener('submit', async event => {
+      event.preventDefault();
+      const res2 = await apiFetch(`${api}/admin/users`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: $('admin-new-name').value.trim(),
+          password: $('admin-new-pass').value,
+        }),
+      });
+      const data2 = await res2.json().catch(() => ({}));
+      if (!res2.ok) { window.alert(data2.detail || '创建失败'); return; }
+      $('admin-new-name').value = ''; $('admin-new-pass').value = '';
+      loadAdminUsers();
+    });
+    for (const btn of pane.querySelectorAll('[data-act]')) {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.id;
+        if (btn.dataset.act === 'reset') {
+          const pwd = window.prompt('给这个用户设置新密码（至少 8 位）：');
+          if (!pwd || pwd.length < 8) return;
+          await apiFetch(`${api}/admin/users/${id}/reset-password`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ new_password: pwd }),
+          });
+        } else {
+          await apiFetch(`${api}/admin/users/${id}/toggle-active`, { method: 'POST' });
+        }
+        loadAdminUsers();
+      });
+    }
+  }
+
+  async function loadAdminStats() {
+    const pane = $('admin-pane-stats');
+    pane.innerHTML = '<p class="pd-empty">加载中…</p>';
+    const res = await apiFetch(`${api}/admin/overview`);
+    if (!res.ok) { pane.innerHTML = '<p class="pd-empty">加载失败，稍后再试</p>'; return; }
+    const data = await res.json();
+    const ai = data.ai_usage || {};
+    const cost = Number(ai.estimated_cost || 0).toFixed(4);
+    pane.innerHTML = `
+      <div class="stat-grid">
+        <div class="stat-card"><b>${data.users.total}</b><span>总用户</span></div>
+        <div class="stat-card"><b>${data.users.active}</b><span>启用中</span></div>
+        <div class="stat-card"><b>${data.users.new_this_week}</b><span>本周新增</span></div>
+        <div class="stat-card"><b>${data.meals_last_24h}</b><span>24小时记录</span></div>
+      </div>
+      <div class="pd-group"><p class="t">全站数据</p>
+        <p class="admin-lines">吃饭记录 ${data.totals.meals} · 决策 ${data.totals.decisions} · 口味 ${data.totals.preferences} · 聊天 ${data.totals.chats} · 反馈 ${data.totals.feedback}</p>
+      </div>
+      <div class="pd-group"><p class="t">AI 用量（${escapeHtml(String(ai.date || ''))}）</p>
+        <p class="admin-lines">调用 ${ai.calls || 0} 次（失败 ${ai.failed || 0}）· tokens ${ai.total_tokens || 0} · 花费 ≈ $${cost}</p>
+      </div>`;
+  }
+
+  async function loadAdminData(selected) {
+    const pane = $('admin-pane-data');
+    if (!adminUsersCache.length) {
+      const res = await apiFetch(`${api}/admin/users`);
+      adminUsersCache = res.ok ? await res.json() : [];
+    }
+    if (!selected && adminUsersCache.length) selected = adminUsersCache[0].id;
+    pane.innerHTML = `
+      <select id="admin-data-user" style="width:100%;height:38px;margin-bottom:10px">
+        ${adminUsersCache.map(u => `<option value="${u.id}"${u.id === selected ? ' selected' : ''}>${escapeHtml(u.display_name || u.username)}</option>`).join('')}
+      </select>
+      <div id="admin-data-body"><p class="pd-empty">加载中…</p></div>`;
+    pane.querySelector('#admin-data-user').addEventListener('change', event => {
+      loadAdminData(Number(event.target.value));
+    });
+    const body = pane.querySelector('#admin-data-body');
+    const res = await apiFetch(`${api}/admin/users/${selected}/summary`);
+    if (!res.ok) { body.innerHTML = '<p class="pd-empty">加载失败，稍后再试</p>'; return; }
+    const data = await res.json();
+    const KIND_LABEL = { like: '爱吃', dislike: '不爱吃', avoid: '不吃', allergy: '过敏', goal: '目标' };
+    body.innerHTML = `
+      <div class="pd-group"><p class="t">最近吃的（${data.meals.length}）</p>
+        ${data.meals.length ? data.meals.map(m => `<p class="admin-line">${escapeHtml(m.description)}<span class="admin-num"> · ${m.eaten_at ? new Date(m.eaten_at).toLocaleDateString() : ''}</span></p>`).join('') : '<p class="pd-empty">还没有记录</p>'}
+      </div>
+      <div class="pd-group"><p class="t">口味（${data.preferences.length}）</p>
+        ${data.preferences.length ? data.preferences.map(p => `<p class="admin-line">${KIND_LABEL[p.kind] || p.kind}：${escapeHtml(p.text)}</p>`).join('') : '<p class="pd-empty">还没有记录</p>'}
+      </div>
+      <div class="pd-group"><p class="t">最近聊天（${data.chat_messages.length}）</p>
+        ${data.chat_messages.length ? data.chat_messages.slice().reverse().map(c => `<p class="admin-line">${c.role === 'user' ? '🙂' : '🐱'} ${escapeHtml(c.content).slice(0, 100)}</p>`).join('') : '<p class="pd-empty">还没有聊天</p>'}
+      </div>`;
+  }
+
+  $('admin-open').addEventListener('click', () => {
+    adminUsersCache = [];
+    $('admin-dialog').showModal();
+    switchAdminTab('users');
+  });
+  $('admin-close').addEventListener('click', () => $('admin-dialog').close());
+  for (const btn of document.querySelectorAll('.admin-tab')) {
+    btn.addEventListener('click', () => switchAdminTab(btn.dataset.tab));
   }
   const skeleton = () => `<div class="skel"><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div></div>
     <div class="skel"><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div></div>`;
@@ -2328,10 +2621,26 @@
       </div>
     </a>`).join('');
     grid.innerHTML = markup || `<div class="watch-room-empty">暂时没有找到视频。<br><a class="watch-room-fallback" href="${escapeHtml(watchSearchUrl())}" target="_blank" rel="noopener noreferrer">在哔哩哔哩继续搜索</a></div>`;
-    grid.querySelectorAll('img').forEach(image => image.addEventListener('error', () => {
-      image.remove();
-      image.closest('.watch-video-cover')?.classList.add('is-missing');
-    }, { once: true }));
+    grid.querySelectorAll('img').forEach(image => {
+      const cover = image.closest('.watch-video-cover');
+      image.addEventListener('load', () => cover?.classList.remove('is-retrying'));
+      image.addEventListener('error', () => {
+        cover?.classList.add('is-retrying');
+        const attempt = Number(image.dataset.coverRetry || 0);
+        if (attempt >= 2) {
+          image.remove();
+          cover?.classList.remove('is-retrying');
+          cover?.classList.add('is-missing');
+          return;
+        }
+        // 代理偶发 502（CDN 抖动或封面刚被 UP 主更换），间隔重试两次再放弃。
+        image.dataset.coverRetry = String(attempt + 1);
+        setTimeout(() => {
+          if (!image.isConnected) return;
+          image.src = `${image.src}&retry=${attempt + 1}`;
+        }, 500 * (attempt + 1));
+      });
+    });
     renderWatchPagination();
   }
 
@@ -2450,7 +2759,8 @@
         if (!line) continue;
         let evt;
         try { evt = JSON.parse(line.slice(5).trim()); } catch { continue; }
-        if (evt.stage === 'thinking') setStatus('正在配菜，通常十几秒…');
+        if (evt.stage === 'thinking') setStatus(evt.message || '正在配菜，通常需要二三十秒…');
+        else if (evt.stage === 'progress') setStatus(evt.message || '正在配菜…');
         else if (evt.stage === 'done') payload = evt.payload;
         else if (evt.stage === 'error') throw new Error(evt.message || '推荐失败，请重试');
       }
@@ -2920,12 +3230,31 @@
     setTimeout(() => renderWeek(), 60);
   });
 
-  buildChips(); buildTimes(); setupDialog(); setupWatchRoom(); syncTimes(); refreshGreeting(); syncChips(); loadPrefs(); loadWeekMini();
-  if (location.hash === '#prefs') { $('prefs-dialog').showModal(); }
-  setInterval(refreshGreeting, 60000);
-  const savedMode = sessionStorage.getItem('fandazi-mode') || 'decide';
-  const savedTab = document.querySelector(`.mode[data-mode="${savedMode}"]`) || document.querySelector('.mode[data-mode="decide"]');
-  savedTab.click();
+  function boot() {
+    buildChips(); buildTimes(); setupDialog(); setupWatchRoom(); syncTimes(); refreshGreeting(); syncChips(); loadPrefs(); loadWeekMini();
+    if (location.hash === '#prefs') { $('prefs-dialog').showModal(); }
+    setInterval(refreshGreeting, 60000);
+    const savedMode = sessionStorage.getItem('fandazi-mode') || 'decide';
+    const savedTab = document.querySelector(`.mode[data-mode="${savedMode}"]`) || document.querySelector('.mode[data-mode="decide"]');
+    savedTab.click();
+  }
+
+  // 启动门卫：先确认登录态，没登录就弹登录框，登录成功后才初始化页面。
+  (async () => {
+    try {
+      const res = await fetch(`${api}/auth/me`);
+      if (res.ok) {
+        currentUser = await res.json();
+      } else {
+        await ensureLoggedIn();
+        if (!currentUser) return;
+      }
+    } catch (e) {
+      return;
+    }
+    applyUserUI();
+    boot();
+  })();
 </script>
 </body>
 </html>
