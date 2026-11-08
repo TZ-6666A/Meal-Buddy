@@ -1,52 +1,19 @@
-"""登录系统测试：注册（邀请码）、登录、会话、数据隔离、管理员接口。"""
+"""登录系统测试：邮箱注册（邮箱即账号）、登录、会话、数据隔离、管理员接口。"""
 
 from datetime import datetime, timedelta, timezone
-from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
 
-from app.accounts import hash_token
 from app.main import app
 from app.models import User, UserSession
 
-INVITE = "LETMEIN"
 
-
-@pytest.fixture()
-def auth_env(client, monkeypatch):
-    """开启邀请码、关闭开发免登录；返回可变的邀请码状态供测试调整。
-
-    依赖 client：让本 fixture 的补丁在 client 的补丁之后生效。
-    """
-    state = {"invite_code": INVITE}
-
-    def security_settings():
-        return SimpleNamespace(
-            api_token="",
-            is_production=False,
-            admin_username="admin",
-            admin_password="",
-            invite_code=state["invite_code"],
-            session_ttl_days=30,
-            dev_auto_login=False,
-        )
-
-    def api_settings():
-        return SimpleNamespace(daily_token_budget=0, invite_code=state["invite_code"])
-
-    monkeypatch.setattr("app.security.get_settings", security_settings)
-    monkeypatch.setattr("app.api.get_settings", api_settings)
-    # 登录/注册限流直接关闭，避免用例间互相干扰
-    monkeypatch.setattr(
-        "app.rate_limit.get_settings",
-        lambda: SimpleNamespace(rate_limit_per_minute=10, auth_rate_limit_per_minute=0),
-    )
-    return state
-
-
-def _register(client, username="xiaofan", password="password123", invite=INVITE, display_name=None):
-    body = {"username": username, "password": password, "invite_code": invite}
+def _register(email_mode, client, email="xiaofan@qq.com", password="password123", display_name=None):
+    """走完整邮箱注册流：发码 → 取码 → 注册。"""
+    response = client.post("/api/v1/auth/email-code", json={"email": email})
+    assert response.status_code == 200, response.text
+    body = {"email": email, "email_code": email_mode.sent[-1][1], "password": password}
     if display_name:
         body["display_name"] = display_name
     return client.post("/api/v1/auth/register", json=body)
@@ -57,68 +24,84 @@ def _second_client() -> TestClient:
     return TestClient(app)
 
 
-def test_register_requires_open_invite(auth_env, client):
-    response = _register(client, invite="WRONG")
-    assert response.status_code == 403
+def test_register_requires_email_code(email_mode, client):
+    # 缺验证码 / 错误验证码都不能注册
+    missing = client.post(
+        "/api/v1/auth/register", json={"email": "a1@qq.com", "email_code": "", "password": "password123"}
+    )
+    assert missing.status_code == 422
+    wrong = client.post(
+        "/api/v1/auth/register", json={"email": "a1@qq.com", "email_code": "000000", "password": "password123"}
+    )
+    assert wrong.status_code == 400
 
-    auth_env["invite_code"] = ""
-    response = _register(client)
-    assert response.status_code == 403
-
-    auth_env["invite_code"] = INVITE
-    response = _register(client)
-    assert response.status_code == 201
-    assert response.json()["username"] == "xiaofan"
-    # 注册即登录：Cookie 已带上
+    # 正常注册：注册即登录，邮箱即账号
+    assert _register(email_mode, client).status_code == 201
     me = client.get("/api/v1/auth/me")
     assert me.status_code == 200
-    assert me.json()["username"] == "xiaofan"
+    assert me.json()["email"] == "xiaofan@qq.com"
+    assert me.json()["username"] == "xiaofan@qq.com"
     assert me.json()["is_admin"] is False
 
 
-def test_register_validates_credentials(auth_env, client):
-    assert _register(client, username="好").status_code == 422
-    assert _register(client, password="short").status_code == 422
-    assert _register(client).status_code == 201
-    assert _register(client).status_code == 409  # 用户名重复（大小写不敏感也走小写归一）
-    assert _register(client, username="XiaoFan").status_code == 409
+def test_register_validates(email_mode, client):
+    assert client.post("/api/v1/auth/email-code", json={"email": "xiaofan@qq.com"}).status_code == 200
+    code = email_mode.sent[-1][1]
+    # 密码太短被拒；改正后用同一个验证码注册成功
+    short = client.post(
+        "/api/v1/auth/register", json={"email": "xiaofan@qq.com", "email_code": code, "password": "short"}
+    )
+    assert short.status_code == 422
+    ok = client.post(
+        "/api/v1/auth/register", json={"email": "xiaofan@qq.com", "email_code": code, "password": "password123"}
+    )
+    assert ok.status_code == 201
+    # 一个邮箱只能绑定一个账号（大小写归一后判定），重复注册无论码对不对都被拦
+    dup = client.post(
+        "/api/v1/auth/register",
+        json={"email": "XiaoFan@QQ.com", "email_code": "000000", "password": "password123"},
+    )
+    assert dup.status_code == 409
+    # 昵称选填，换邮箱可以继续注册
+    assert _register(email_mode, client, email="nick@qq.com", display_name="小饭").status_code == 201
 
 
-def test_login_logout_flow(auth_env, client):
-    assert _register(client).status_code == 201
+def test_login_logout_flow(email_mode, client):
+    assert _register(email_mode, client).status_code == 201
     client.post("/api/v1/auth/logout")
 
-    me = client.get("/api/v1/auth/me")
-    assert me.status_code == 401
+    assert client.get("/api/v1/auth/me").status_code == 401
 
-    wrong = client.post("/api/v1/auth/login", json={"username": "xiaofan", "password": "wrong-pass"})
+    wrong = client.post("/api/v1/auth/login", json={"username": "xiaofan@qq.com", "password": "wrong-pass"})
     assert wrong.status_code == 401
 
-    ok = client.post("/api/v1/auth/login", json={"username": "xiaofan", "password": "password123"})
+    ok = client.post("/api/v1/auth/login", json={"username": "xiaofan@qq.com", "password": "password123"})
     assert ok.status_code == 200
     assert client.get("/api/v1/auth/me").status_code == 200
 
-    # 大小写不敏感登录
+    # 邮箱统一小写存储，大小写写法都能登录
     other = _second_client()
-    ok2 = other.post("/api/v1/auth/login", json={"username": "XiaoFan", "password": "password123"})
+    ok2 = other.post("/api/v1/auth/login", json={"username": "XiaoFan@QQ.com", "password": "password123"})
     assert ok2.status_code == 200
 
 
-def test_disabled_user_cannot_login_or_use_session(auth_env, client):
-    assert _register(client).status_code == 201
+def test_disabled_user_cannot_login_or_use_session(email_mode, client):
+    assert _register(email_mode, client).status_code == 201
     with client.testing_session() as session:
-        user = session.query(User).filter_by(username="xiaofan").one()
+        user = session.query(User).filter_by(username="xiaofan@qq.com").one()
         user.is_active = False
         session.commit()
 
-    response = client.post("/api/v1/auth/login", json={"username": "xiaofan", "password": "password123"})
+    response = client.post(
+        "/api/v1/auth/login", json={"username": "xiaofan@qq.com", "password": "password123"}
+    )
     assert response.status_code == 401
     # 停用前签发的会话也立即失效
     assert client.get("/api/v1/auth/me").status_code == 401
 
 
-def test_expired_session_rejected(auth_env, client):
-    assert _register(client).status_code == 201
+def test_expired_session_rejected(email_mode, client):
+    assert _register(email_mode, client).status_code == 201
     # 直接把库里会话的过期时间改到过去
     with client.testing_session() as session:
         stored = session.query(UserSession).one()
@@ -127,14 +110,14 @@ def test_expired_session_rejected(auth_env, client):
     assert client.get("/api/v1/auth/me").status_code == 401
 
 
-def test_data_isolated_between_users(auth_env, client):
-    assert _register(client, username="alice").status_code == 201
+def test_data_isolated_between_users(email_mode, client):
+    assert _register(email_mode, client, email="alice@qq.com").status_code == 201
     created = client.post("/api/v1/meals", json={"description": "板栗烧鸡"})
     assert created.status_code == 201
     meal_id = created.json()["id"]
 
     bob = _second_client()
-    assert _register(bob, username="bob").status_code == 201
+    assert _register(email_mode, bob, email="bob@qq.com").status_code == 201
     assert bob.get("/api/v1/meals").json() == []
     # 试图动别人的记录：一律 404，不暴露存在性
     assert bob.delete(f"/api/v1/meals/{meal_id}").status_code == 404
@@ -148,23 +131,22 @@ def test_data_isolated_between_users(auth_env, client):
     assert client.get("/api/v1/meals").json()[0]["description"] == "板栗烧鸡"
 
 
-def test_non_admin_blocked_from_admin_api(auth_env, client):
-    assert _register(client).status_code == 201
+def test_non_admin_blocked_from_admin_api(email_mode, client):
+    assert _register(email_mode, client).status_code == 201
     assert client.get("/api/v1/admin/users").status_code == 403
     assert client.get("/api/v1/admin/overview").status_code == 403
     assert client.get("/api/v1/admin/users/1/summary").status_code == 403
     assert client.post("/api/v1/maintenance/prune", json={"days": 90}).status_code == 403
 
 
-def test_admin_user_management(auth_env, client):
-    # 管理员用 DB 种子方式创建（走 hash_password 正规路径）
+def test_admin_user_management(email_mode, client):
+    # 管理员用 DB 种子方式创建（走 hash_password 正规路径），仍以用户名登录
     from app.accounts import hash_password
 
     with client.testing_session() as session:
         session.add(User(username="boss", password_hash=hash_password("admin-pass-123"), is_admin=True))
         session.commit()
 
-    # 管理员登录
     assert client.post(
         "/api/v1/auth/login", json={"username": "boss", "password": "admin-pass-123"}
     ).status_code == 200
@@ -209,14 +191,14 @@ def test_admin_user_management(auth_env, client):
     assert summary.json()["user"]["username"] == "carol"
 
 
-def test_per_user_data_wipe(auth_env, client):
-    assert _register(client, username="dave").status_code == 201
+def test_per_user_data_wipe(email_mode, client):
+    assert _register(email_mode, client, email="dave@qq.com").status_code == 201
     client.post("/api/v1/meals", json={"description": "牛肉面"})
     client.post("/api/v1/preferences", json={"kind": "like", "topic": "牛肉", "text": "爱吃牛肉"})
 
     # 另一个用户的数据不受影响
     eve = _second_client()
-    assert _register(eve, username="eve").status_code == 201
+    assert _register(email_mode, eve, email="eve@qq.com").status_code == 201
     eve.post("/api/v1/meals", json={"description": "沙拉"})
 
     response = client.request("DELETE", "/api/v1/data", json={"confirm": "DELETE"})
@@ -227,12 +209,12 @@ def test_per_user_data_wipe(auth_env, client):
     assert [m["description"] for m in eve.get("/api/v1/meals").json()] == ["沙拉"]
 
 
-def test_export_only_own_data(auth_env, client):
-    assert _register(client, username="frank").status_code == 201
+def test_export_only_own_data(email_mode, client):
+    assert _register(email_mode, client, email="frank@qq.com").status_code == 201
     client.post("/api/v1/meals", json={"description": "饺子"})
 
     grace = _second_client()
-    assert _register(grace, username="grace").status_code == 201
+    assert _register(email_mode, grace, email="grace@qq.com").status_code == 201
     grace.post("/api/v1/meals", json={"description": "火锅"})
 
     exported = client.get("/api/v1/export")

@@ -262,12 +262,15 @@ def _me_payload(user: User) -> UserRead:
     return UserRead.model_validate(user)
 
 
+def _domain_error(allowed: list[str]) -> str:
+    named = "QQ 邮箱" if allowed == ["qq.com"] else "、".join(allowed)
+    return f"目前只支持 {named} 注册"
+
+
 @public_router.get("/auth/config")
 def auth_config() -> dict:
-    """注册方式：配了 SMTP 发件账号就走邮箱验证码，否则回退邀请码。"""
-    email_enabled = email_verification_enabled()
-    invite_required = bool(getattr(get_settings(), "invite_code", "")) and not email_enabled
-    return {"email_enabled": email_enabled, "invite_required": invite_required}
+    """注册/邮箱登录能力：配了 SMTP 发件账号才开放邮箱注册。"""
+    return {"email_enabled": email_verification_enabled()}
 
 
 @public_router.post("/auth/email-code", dependencies=[Depends(limit_auth_calls)])
@@ -285,7 +288,7 @@ def request_email_code(payload: EmailCodeRequest, db: Session = Depends(get_db))
         if domain.strip()
     ]
     if allowed and email.rsplit("@", 1)[-1] not in allowed:
-        raise HTTPException(status_code=422, detail="这个邮箱域名不支持注册")
+        raise HTTPException(status_code=422, detail=_domain_error(allowed))
     registered = db.scalar(select(User).where(User.email == email)) is not None
     if payload.purpose == "register" and registered:
         raise HTTPException(status_code=409, detail="这个邮箱已经注册过了，直接登录吧")
@@ -328,38 +331,32 @@ def login_with_email_code(
                     status_code=status.HTTP_201_CREATED,
                     dependencies=[Depends(limit_auth_calls)])
 def register(payload: RegisterRequest, response: Response, db: Session = Depends(get_db)) -> User:
-    """注册：配了 SMTP 发件账号走邮箱验证码；未配置时回退邀请码，未配置邀请码视为关闭。"""
-    settings = get_settings()
-    email = normalize_email(payload.email) if payload.email else ""
-    if email_verification_enabled():
-        if not email or not payload.email_code.strip():
-            raise HTTPException(status_code=422, detail="请填写邮箱和验证码")
-        error = validate_email(email)
-        if error:
-            raise HTTPException(status_code=422, detail=error)
-    else:
-        expected_code = getattr(settings, "invite_code", "")
-        if not expected_code:
-            raise HTTPException(status_code=403, detail="当前未开放注册")
-        if payload.invite_code != expected_code:
-            raise HTTPException(status_code=403, detail="邀请码不对")
-    error = validate_credentials(payload.username, payload.password)
+    """邮箱验证码注册：邮箱即账号（username 由邮箱派生），一个邮箱只能绑定一个账号。"""
+    if not email_verification_enabled():
+        raise HTTPException(status_code=403, detail="注册暂未开放，请稍后再试")
+    email = normalize_email(payload.email)
+    error = validate_email(email)
     if error:
         raise HTTPException(status_code=422, detail=error)
-    username = normalize_username(payload.username)
-    if db.scalar(select(User).where(User.username == username)) is not None:
-        raise HTTPException(status_code=409, detail="这个用户名已经被占用了")
-    if email:
-        if db.scalar(select(User).where(User.email == email)) is not None:
-            raise HTTPException(status_code=409, detail="这个邮箱已经注册过了，直接登录吧")
-        code_error = consume_email_code(db, email, payload.email_code)
-        if code_error:
-            raise HTTPException(status_code=400, detail=code_error)
+    allowed = [
+        domain.strip().lower()
+        for domain in getattr(get_settings(), "email_allowed_domains", "").split(",")
+        if domain.strip()
+    ]
+    if allowed and email.rsplit("@", 1)[-1] not in allowed:
+        raise HTTPException(status_code=422, detail=_domain_error(allowed))
+    if len(payload.password) < 8:
+        raise HTTPException(status_code=422, detail="密码至少 8 位")
+    if db.scalar(select(User).where(User.email == email)) is not None:
+        raise HTTPException(status_code=409, detail="这个邮箱已经注册过了，直接登录吧")
+    code_error = consume_email_code(db, email, payload.email_code, purpose="register")
+    if code_error:
+        raise HTTPException(status_code=400, detail=code_error)
     user = User(
-        username=username,
+        username=email,
         password_hash=hash_password(payload.password),
         display_name=payload.display_name,
-        email=email or None,
+        email=email,
     )
     db.add(user)
     db.commit()
@@ -373,7 +370,7 @@ def register(payload: RegisterRequest, response: Response, db: Session = Depends
 def login(payload: LoginRequest, response: Response, db: Session = Depends(get_db)) -> User:
     user = authenticate(db, payload.username, payload.password)
     if user is None:
-        raise HTTPException(status_code=401, detail="用户名或密码不对")
+        raise HTTPException(status_code=401, detail="邮箱或密码不对")
     user.last_login_at = datetime.now(timezone.utc)
     db.commit()
     set_session_cookie(response, create_session(db, user))

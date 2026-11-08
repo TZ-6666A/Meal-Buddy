@@ -261,14 +261,19 @@ class PruneRequest(BaseModel):
 
 
 class RegisterRequest(BaseModel):
-    username: str = Field(min_length=2, max_length=40)
+    """邮箱即账号：username 由邮箱派生（小写存储，唯一由 email 唯一索引保证）。"""
+
+    email: str = Field(min_length=3, max_length=254)
+    email_code: str = Field(min_length=1, max_length=12)
     password: str = Field(min_length=8, max_length=128)
     display_name: str | None = Field(default=None, max_length=40)
-    invite_code: str = Field(default="", max_length=80)
-    email: str | None = Field(default=None, max_length=254)
-    email_code: str = Field(default="", max_length=12)
 
-    @field_validator("username", "password", "invite_code")
+    @field_validator("email")
+    @classmethod
+    def normalize_email_field(cls, value: str) -> str:
+        return value.strip().lower()
+
+    @field_validator("email_code", "password")
     @classmethod
     def strip_text(cls, value: str) -> str:
         return value.strip()
@@ -283,7 +288,8 @@ class RegisterRequest(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    username: str = Field(min_length=1, max_length=40)
+    # username 字段兼容老调用方：登录时填邮箱（或老账号的用户名）都行
+    username: str = Field(min_length=1, max_length=254)
     password: str = Field(min_length=1, max_length=128)
 
     @field_validator("username", "password")
