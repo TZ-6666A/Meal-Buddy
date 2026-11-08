@@ -277,7 +277,7 @@ def auth_config() -> dict:
 def request_email_code(payload: EmailCodeRequest, db: Session = Depends(get_db)) -> dict:
     """发送邮箱验证码：purpose=register 用于注册（邮箱须未占用），login 用于免密登录（邮箱须已绑定）。"""
     if not email_verification_enabled():
-        raise HTTPException(status_code=403, detail="当前未开启邮箱注册")
+        raise HTTPException(status_code=403, detail="邮箱服务还没配置好，注册暂未开放")
     email = normalize_email(payload.email)
     error = validate_email(email)
     if error:
