@@ -7,6 +7,7 @@ import logging
 import re
 import time
 from threading import Lock
+from typing import Awaitable, Callable
 
 from openai import AsyncOpenAI
 from pydantic import ValidationError
@@ -374,6 +375,7 @@ class DietAgent:
         pantry: list[str],
         notes: list[str] | None = None,
         blocked: list[str] | None = None,
+        notify: Callable[[str], Awaitable[None]] | None = None,
     ) -> tuple[str, list[Recipe], str]:
         started = time.perf_counter()
         banned = expand_blocked(blocked or [])
@@ -394,6 +396,8 @@ class DietAgent:
                     request, pantry, banned, recent_meals, exc
                 )
             else:
+                if notify is not None:
+                    await notify("正在核对每道菜的食材清单…")
                 if recipes:
                     recipes = self._ensure_recipe_pool(request, pantry, banned, recipes)
                     if recipes:
