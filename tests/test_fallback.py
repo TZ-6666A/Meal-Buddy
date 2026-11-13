@@ -81,13 +81,13 @@ def test_fallback_never_returns_blocked_recipes(client, fake_settings, monkeypat
     )
 
     assert response.status_code == 200
-    assert len(response.json()["recipes"]) >= 12
+    assert len(response.json()["recipes"]) >= 16
     for recipe in response.json()["recipes"]:
         texts = [recipe["name"]] + [i["name"] for i in recipe["ingredients"]]
         assert not any("鸡蛋" in text for text in texts)
 
 
-def test_model_recommendation_keeps_a_twelve_recipe_pool(fake_settings, monkeypatch):
+def test_model_recommendation_keeps_a_sixteen_recipe_pool(fake_settings, monkeypatch):
     recipes = [
         Recipe(
             name=f"家常菜{i}",
@@ -97,7 +97,7 @@ def test_model_recommendation_keeps_a_twelve_recipe_pool(fake_settings, monkeypa
             steps=["洗净切好", "炒熟出锅"],
             tags=[],
         )
-        for i in range(12)
+        for i in range(16)
     ]
 
     async def fake_recipes(self, *args, **kwargs):
@@ -110,10 +110,10 @@ def test_model_recommendation_keeps_a_twelve_recipe_pool(fake_settings, monkeypa
     )
 
     assert source == "llm"
-    assert len(result) == 12
+    assert len(result) == 16
 
 
-def test_short_model_recommendation_is_padded_to_twelve(fake_settings, monkeypatch):
+def test_short_model_recommendation_is_padded_to_sixteen(fake_settings, monkeypatch):
     recipe = Recipe(
         name="番茄炒菜",
         description="快手家常菜",
@@ -132,10 +132,10 @@ def test_short_model_recommendation_is_padded_to_twelve(fake_settings, monkeypat
         DietAgent().recommend(RecommendationRequest(), [], [], [], [])
     )
 
-    assert len(result) >= 12
+    assert len(result) >= 16
 
 
-def test_short_time_fallback_keeps_twelve_safe_quick_recipes():
+def test_short_time_fallback_keeps_sixteen_safe_quick_recipes():
     request = RecommendationRequest(available_minutes=15)
 
     _, recipes, _ = DietAgent._demo(request, [], ["鸡蛋"])
@@ -424,7 +424,7 @@ def test_model_recipes_over_time_limit_are_filtered_and_replaced(fake_settings, 
     assert all(recipe.prep_minutes <= 30 for recipe in recipes)
 
 
-def test_long_time_prefers_matching_stir_fry_then_soup():
+def test_long_time_prioritizes_time_match_without_style_bias():
     recipes = [
         Recipe(name="快炒青菜", description="", prep_minutes=15,
                ingredients=[], steps=["炒熟"], tags=["炒菜"]),
@@ -436,10 +436,10 @@ def test_long_time_prefers_matching_stir_fry_then_soup():
 
     ordered = DietAgent._rank_recipes_for_time(40, recipes)
 
-    assert [recipe.name for recipe in ordered] == ["干煸豆角", "菌菇鸡汤", "快炒青菜"]
+    assert [recipe.name for recipe in ordered] == ["菌菇鸡汤", "干煸豆角", "快炒青菜"]
 
 
-def test_long_time_falls_back_to_matching_soup_when_no_stir_fry():
+def test_long_time_keeps_time_match_ahead_of_style():
     recipes = [
         Recipe(name="清蒸鲈鱼", description="", prep_minutes=30,
                ingredients=[], steps=["蒸熟"], tags=["蒸煮"]),

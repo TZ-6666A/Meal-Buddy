@@ -447,42 +447,22 @@ class DietAgent:
             seen.add(recipe.name)
             pool.append(recipe)
         ranked = self._rank_recipes_for_time(request.available_minutes, pool)
-        return self._spread_recipe_styles(ranked)[:12]
+        return self._spread_recipe_styles(ranked)[:16]
 
     @staticmethod
     def _rank_recipes_for_time(available_minutes: int, recipes: list[Recipe]) -> list[Recipe]:
-        """Prioritize recipes near the selected time, with a long-time style fallback."""
+        """Prioritize recipes near the selected time without style bias."""
         target_floor = max(5, available_minutes - 15)
-        in_target_range = [
-            recipe for recipe in recipes
-            if target_floor <= recipe.prep_minutes <= available_minutes
-        ]
-        preferred_style = ""
-        if available_minutes > 30:
-            def target_text(recipe: Recipe) -> str:
-                return " ".join([recipe.name, *recipe.tags])
 
-            has_stir_fry = any(
-                any(word in target_text(recipe) for word in ("炒", "煸"))
-                for recipe in in_target_range
-            )
-            has_soup = any(
-                any(word in target_text(recipe) for word in ("汤", "羹", "粥"))
-                for recipe in recipes
-            )
-            preferred_style = "stir_fry" if has_stir_fry else "soup" if has_soup else ""
-
-        def rank(recipe: Recipe) -> tuple[int, int]:
-            text = " ".join([recipe.name, *recipe.tags])
-            if preferred_style == "stir_fry":
-                preferred = any(word in text for word in ("炒", "煸"))
-            elif preferred_style == "soup":
-                preferred = any(word in text for word in ("汤", "羹", "粥"))
-            else:
-                preferred = False
+        def rank(recipe: Recipe) -> tuple[int, int, int]:
             in_range = target_floor <= recipe.prep_minutes <= available_minutes
-            group = 0 if preferred and in_range else 1 if in_range else 2 if preferred else 3
-            return group, -recipe.prep_minutes
+            # Match the user's available time first; cooking style is handled by
+            # _spread_recipe_styles so time matching cannot force all stir-fries.
+            return (
+                0 if in_range else 1,
+                abs(available_minutes - recipe.prep_minutes),
+                -recipe.prep_minutes,
+            )
 
         return sorted(recipes, key=rank)
 
@@ -513,7 +493,7 @@ class DietAgent:
         for recipe in recipes:
             buckets.setdefault(cls._recipe_style(recipe), []).append(recipe)
 
-        style_priority = ("stir_fry", "cold", "steam", "soup", "fry", "braise", "other")
+        style_priority = ("cold", "steam", "soup", "stir_fry", "fry", "braise", "other")
         result = [recipes[0]]
         first_style = cls._recipe_style(recipes[0])
         buckets[first_style].pop(0)
