@@ -73,6 +73,12 @@ class Recipe(BaseModel):
     ingredients: list[RecipeIngredient]
     steps: list[str]
     tags: list[str] = Field(default_factory=list)
+    image_url: str = ""
+    image_fallback_url: str = ""
+    image_alt: str = ""
+    image_photographer: str = ""
+    image_credit: str = ""
+    image_credit_url: str = ""
 
 
 class RecommendationRequest(BaseModel):
@@ -309,8 +315,8 @@ class UserRead(BaseModel):
 
 class EmailCodeRequest(BaseModel):
     email: str = Field(min_length=3, max_length=254)
-    # register=注册验证码（邮箱必须未被占用）；login=登录验证码（邮箱必须已绑定账号）
-    purpose: str = Field(default="register", pattern="^(register|login)$")
+    # register=注册；login=免密登录；reset=修改密码
+    purpose: str = Field(default="register", pattern="^(register|login|reset)$")
 
     @field_validator("email")
     @classmethod
@@ -337,6 +343,31 @@ class PasswordResetRequest(BaseModel):
         return value.strip()
 
 
+class EmailPasswordResetRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    email_code: str = Field(min_length=1, max_length=12)
+    new_password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("email")
+    @classmethod
+    def strip_email(cls, value: str) -> str:
+        return value.strip().lower()
+
+    @field_validator("email_code", "new_password")
+    @classmethod
+    def strip_text(cls, value: str) -> str:
+        return value.strip()
+
+
+class AdminUserEmailRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+
+    @field_validator("email")
+    @classmethod
+    def strip_email(cls, value: str) -> str:
+        return value.strip().lower()
+
+
 class AdminUserCreate(BaseModel):
     username: str = Field(min_length=2, max_length=40)
     password: str = Field(min_length=8, max_length=128)
@@ -355,3 +386,45 @@ class AdminUserCreate(BaseModel):
             return None
         cleaned = value.strip()
         return cleaned or None
+
+
+# ========== 隐私保护和数据安全相关 Schema ==========
+
+class DeactivateAccountRequest(BaseModel):
+    """注销账号请求（需要密码确认）"""
+    password: str = Field(min_length=1, max_length=128)
+    confirm: str = Field(pattern="^DEACTIVATE$")
+    
+    @field_validator("password")
+    @classmethod
+    def strip_password(cls, value: str) -> str:
+        return value.strip()
+
+
+class ExportDataResponse(BaseModel):
+    """数据导出响应"""
+    user_info: dict
+    meals: list[dict]
+    pantry: list[dict]
+    preferences: list[dict]
+    chat_messages: list[dict]
+    decision_sessions: list[dict]
+    exported_at: str
+    format_version: str = "1.0"
+
+
+class UserSessionInfo(BaseModel):
+    """用户会话信息（用于设备管理）"""
+    id: int
+    created_at: str
+    expires_at: str
+    is_current: bool
+    ip_address: str | None = None
+    user_agent: str | None = None
+    
+    model_config = {"from_attributes": True}
+
+
+class RevokeSessionRequest(BaseModel):
+    """注销指定会话"""
+    session_id: int

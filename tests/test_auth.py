@@ -165,6 +165,12 @@ def test_admin_user_management(email_mode, client):
     assert listing.status_code == 200
     usernames = {row["username"] for row in listing.json()}
     assert {"boss", "carol"} <= usernames
+    carol_id = next(row["id"] for row in listing.json() if row["username"] == "carol")
+    bind = client.patch(f"/api/v1/admin/users/{carol_id}/email", json={"email": "carol@qq.com"})
+    assert bind.status_code == 200
+    assert bind.json()["email"] == "carol@qq.com"
+    duplicate = client.patch(f"/api/v1/admin/users/{carol_id}/email", json={"email": "carol@qq.com"})
+    assert duplicate.status_code == 200
 
     # 重置密码：旧会话全部失效，新密码可登录
     carol_id = next(row["id"] for row in listing.json() if row["username"] == "carol")

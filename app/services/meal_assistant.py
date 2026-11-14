@@ -78,8 +78,8 @@ INGREDIENT_ALIASES = {
     "盐": {"盐", "食盐", "加盐", "放盐", "撒盐", "少许盐", "适量盐"},
     "醋": {"白醋", "陈醋", "米醋"},
     "糖": {"白糖", "冰糖", "砂糖"},
-    "料酒": {"料酒"},
-    "淀粉": {"淀粉", "水淀粉"},
+    "料酒": {"料酒", "黄酒"},
+    "淀粉": {"淀粉", "水淀粉", "生粉"},
     "姜": {"生姜", "姜片", "姜丝"},
     "胡椒粉": {"白胡椒", "白胡椒粉", "黑胡椒", "胡椒粉"},
     "蚝油": {"蚝油"},
@@ -91,8 +91,10 @@ INGREDIENT_ALIAS_KEYS = {
 }
 
 # 厨房常备调料：用户只写主料（如「鸡蛋、番茄」）时，不能因为缺油盐酱醋就否掉整道菜。
+# 这份清单要和 app/prompts/recommend_base.txt 里“家庭常备调料”的说法保持一致。
 PANTRY_STAPLES = {
     "食用油", "盐", "酱油", "醋", "糖", "料酒", "淀粉", "蚝油", "胡椒粉",
+    "鸡精", "味精",
 }
 
 PREFERENCES_GUARD = (
@@ -251,11 +253,17 @@ class DietAgent:
                 "rule",
             )
         settings = get_settings()
-        if settings.openai_api_key:
-            polished = await self._polish(message, notes, history, earlier_summary)
-            if polished:
-                return polished, learned, "llm"
-        return self._fallback(message), learned, "rule"
+        if not settings.openai_api_key:
+            logger.warning(
+                "chat_llm_unconfigured model=%s prompt_version=%s",
+                settings.openai_model,
+                PROMPT_VERSION,
+            )
+            return self._fallback(message), learned, "fallback"
+        polished = await self._polish(message, notes, history, earlier_summary)
+        if polished:
+            return polished, learned, "llm"
+        return self._fallback(message), learned, "fallback"
 
     async def _polish(self, message: str, notes: list[str],
                       history: list[dict[str, str]] | None = None,

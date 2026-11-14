@@ -274,6 +274,19 @@ def test_cover_url_preserves_transformed_thumbnail_variant():
     ) == "https://i0.hdslb.com/bfs/archive/example.jpg@672w_378h_1c_!web-search-common-cover.avif"
 
 
+def test_cover_url_upgrades_http_and_protocol_relative():
+    assert watch._cover_url(
+        "http://i2.hdslb.com/bfs/archive/example.jpg"
+    ) == "https://i2.hdslb.com/bfs/archive/example.jpg@672w_378h_1c_!web-search-common-cover.avif"
+    assert watch._cover_url(
+        "//i1.hdslb.com/bfs/archive/example.png"
+    ) == "https://i1.hdslb.com/bfs/archive/example.png"
+
+
+def test_cover_url_still_rejects_non_hdslb_http_host():
+    assert watch._cover_url("http://example.invalid/image.jpg") == ""
+
+
 def test_watch_cover_proxy_returns_image_bytes(client, monkeypatch):
     async def fake_fetch(url):
         assert url == "https://i0.hdslb.com/bfs/archive/example.jpg"

@@ -33,7 +33,9 @@ Open `http://127.0.0.1:8000/docs` to inspect the API. The development server bin
 AMAP_KEY=你的高德Web服务Key
 ```
 
-`.env` 已加入 Git 忽略规则，真实 Key 只保存在本机，不要粘贴到网页代码或提交到仓库。未配置 Key 时，附近推荐会提示配置方法，其他本地推荐仍可使用。
+`.env` 已加入 Git 忽略规则，真实 Key 只保存在服务端，不要粘贴到网页代码、URL、日志、截图或提交到仓库。浏览器只请求同源的 `/api/v1/*`，OpenAI、高德和 Pexels Key 不会下发给前端。未配置高德 Key 时，附近推荐会提示配置方法，其他本地推荐仍可使用。
+
+推荐菜谱配图使用 Pexels API 搜索。将 Pexels API Key 填入服务器 `.env` 的 `PEXELS_API_KEY` 并重启应用；图片由后端同源代理并缓存。未配置或图片服务暂不可用时，页面显示菜名占位图，不影响推荐与做饭流程。
 
 `/docs` and `/openapi.json` remain public for local development. Anyone who can reach them can inspect the API contract; do not expose them to an untrusted network.
 
@@ -57,7 +59,7 @@ docker compose up -d --build app
 docker compose ps
 ```
 
-应用监听服务器 TCP 8000 端口，可先用 `http://服务器公网IP:8000` 验证；在云防火墙中只开放需要的端口。PostgreSQL 数据保存在 Docker 命名卷 `postgres_data`，更新应用时运行 `git pull` 后执行 `docker compose up -d --build app`。不要删除该数据卷。
+应用容器监听 TCP 8000 端口，但生产环境应只让 Caddy/Nginx 通过 Docker 内网或本机回环访问，不能把 `http://服务器公网IP:8000` 作为公网入口。公网只开放 HTTPS（以及证书签发所需的 80/443），并在云防火墙中阻断 8000。PostgreSQL 数据保存在 Docker 命名卷 `postgres_data`，更新应用时运行 `git pull` 后执行 `docker compose up -d --build app`。不要删除该数据卷。
 
 ### HTTPS 反向代理（定位功能必需）
 
@@ -157,6 +159,8 @@ sudo systemctl status caddy
 - `DELETE /api/v1/data` — 清空全部数据，请求体需 `{"confirm": "DELETE"}`（敏感接口）
 
 ## 模型结果与降级
+
+聊天响应里的 `source` 用于排查调用链：`rule` 表示偏好/越界/决策引导等规则分支，`llm` 表示真实模型成功，`fallback` 表示未配置模型或模型失败后的安全兜底。普通饮食问题在 `OPENAI_API_KEY` 已配置且服务从项目配置加载成功时才会进入模型调用；“今晚吃什么”这类决策引导仍然是规则分支，不会产生模型调用。
 
 推荐响应里的 `source` 明确区分三种来源：
 

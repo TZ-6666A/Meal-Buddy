@@ -166,6 +166,10 @@ def test_email_code_login(email_mode, client):
     ok = client.post("/api/v1/auth/login/email-code", json={"email": "ken@qq.com", "email_code": code})
     assert ok.status_code == 200
     assert ok.json()["email"] == "ken@qq.com"
+    cookie = ok.headers["set-cookie"].lower()
+    assert "max-age=2592000" in cookie
+    assert "httponly" in cookie
+    assert "samesite=lax" in cookie
     assert client.get("/api/v1/auth/me").status_code == 200
     with client.testing_session() as session:
         user = session.query(User).filter_by(username="ken@qq.com").one()
@@ -175,6 +179,35 @@ def test_email_code_login(email_mode, client):
     client.post("/api/v1/auth/logout")
     replay = client.post("/api/v1/auth/login/email-code", json={"email": "ken@qq.com", "email_code": code})
     assert replay.status_code == 400
+
+
+def test_email_code_reset_changes_password_and_invalidates_sessions(email_mode, client):
+    assert _send_code(client, "reset@qq.com").status_code == 200
+    assert _register_email(client, "reset@qq.com", email_mode.sent[-1][1]).status_code == 201
+    other = client.__class__(client.app)
+    assert other.post("/api/v1/auth/login", json={"username": "reset@qq.com", "password": "password123"}).status_code == 200
+
+    client.post("/api/v1/auth/logout")
+    _skip_cooldown(client, "reset@qq.com")
+    assert _send_code(client, "reset@qq.com", purpose="reset").status_code == 200
+    reset_code = email_mode.sent[-1][1]
+    assert email_mode.sent[-1][2] == "reset"
+    changed = client.post("/api/v1/auth/reset-password", json={
+        "email": "reset@qq.com", "email_code": reset_code, "new_password": "new-password-123",
+    })
+    assert changed.status_code == 200
+    assert client.post("/api/v1/auth/login", json={"username": "reset@qq.com", "password": "password123"}).status_code == 401
+    assert client.post("/api/v1/auth/login", json={"username": "reset@qq.com", "password": "new-password-123"}).status_code == 200
+    assert other.get("/api/v1/auth/me").status_code == 401
+
+
+def test_email_code_purposes_cannot_be_reused_for_reset(email_mode, client):
+    assert _send_code(client, "purpose@qq.com").status_code == 200
+    register_code = email_mode.sent[-1][1]
+    assert _register_email(client, "purpose@qq.com", register_code).status_code == 201
+    assert client.post("/api/v1/auth/reset-password", json={
+        "email": "purpose@qq.com", "email_code": register_code, "new_password": "new-password-123",
+    }).status_code == 400
 
 
 def test_email_code_login_disabled_user(email_mode, client):

@@ -168,18 +168,14 @@ def _cover_url(value: object) -> str:
         cover = "https:" + cover
     parsed = urlsplit(cover)
     host = (parsed.hostname or "").lower()
-    if parsed.scheme == "https" and (host == "hdslb.com" or host.endswith(".hdslb.com")):
-        # Keep Bilibili's thumbnail transform so the proxy does not fetch the original image.
-        if "@" not in parsed.path and parsed.path.lower().endswith((".jpg", ".jpeg")):
-            return urlunsplit((
-                parsed.scheme,
-                parsed.netloc,
-                parsed.path + "@672w_378h_1c_!web-search-common-cover.avif",
-                parsed.query,
-                "",
-            ))
-        return cover
-    return ""
+    if host != "hdslb.com" and not host.endswith(".hdslb.com"):
+        return ""
+    # 搜索接口偶尔返回 http 地址，直接丢弃会让前端只剩占位图，这里统一升级。
+    # Keep Bilibili's thumbnail transform so the proxy does not fetch the original image.
+    path = parsed.path
+    if "@" not in path and path.lower().endswith((".jpg", ".jpeg")):
+        path += "@672w_378h_1c_!web-search-common-cover.avif"
+    return urlunsplit(("https", parsed.netloc, path, parsed.query, ""))
 
 
 def _get_cover_client() -> httpx.AsyncClient:

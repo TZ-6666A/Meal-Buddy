@@ -27,7 +27,8 @@ services:
       # 只信任 Docker 网桥和本机：外部直连 8000 时对端是公网地址，不会被信任。
       FORWARDED_ALLOW_IPS: 172.16.0.0/12,127.0.0.1,::1
     ports:
-      - "8000:8000"
+      # Only the host reverse proxy should reach the app; do not bypass HTTPS.
+      - "127.0.0.1:8000:8000"
     depends_on:
       db:
         condition: service_healthy

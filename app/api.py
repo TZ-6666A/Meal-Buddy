@@ -56,6 +56,8 @@ from app.schemas import (
     MealCreate,
     MealRead,
     AdminUserCreate,
+    AdminUserEmailRequest,
+    EmailPasswordResetRequest,
     FeedbackCreate,
     FeedbackRead,
     PantryItemCreate,
@@ -73,8 +75,9 @@ from app.schemas import (
 )
 from app.services import city_dishes, decision, nearby, nutrition, usage, watch
 from app.services.meal_assistant import MAX_HISTORY_MESSAGES, DietAgent, summarize_older_history
+from app.services import recipe_photos
 from app.services.cook_teacher import CookTeacher
-from app.rate_limit import limit_auth_calls, limit_model_calls
+from app.rate_limit import limit_auth_calls, limit_model_calls, limit_recipe_photos
 from app.security import (
     clear_session_cookie,
     client_host,
@@ -243,6 +246,27 @@ def health(db: Session = Depends(get_db)) -> dict[str, str]:
     return {"status": "ok", "service": "fandazi-api", "database": "ok"}
 
 
+@public_router.get("/recipe-photo-info", dependencies=[Depends(limit_recipe_photos)])
+async def recipe_photo_info(name: str = Query(min_length=1, max_length=80)) -> dict:
+    return await recipe_photos.photo_info(name)
+
+
+@public_router.get("/recipe-photo", dependencies=[Depends(limit_recipe_photos)])
+async def recipe_photo(
+    name: str = Query(min_length=1, max_length=80),
+    fallback: bool = Query(default=False),
+) -> Response:
+    content, content_type, found = await recipe_photos.fetch_photo(name, fallback_only=fallback)
+    return Response(
+        content=content,
+        media_type=content_type,
+        headers={
+            "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
+            "X-Recipe-Photo": "pexels" if found else "placeholder",
+        },
+    )
+
+
 @public_router.get("/watch-cover")
 async def watch_cover(url: str = Query(min_length=1, max_length=2048)) -> Response:
     try:
@@ -292,8 +316,8 @@ def request_email_code(payload: EmailCodeRequest, db: Session = Depends(get_db))
     registered = db.scalar(select(User).where(User.email == email)) is not None
     if payload.purpose == "register" and registered:
         raise HTTPException(status_code=409, detail="这个邮箱已经注册过了，直接登录吧")
-    if payload.purpose == "login" and not registered:
-        raise HTTPException(status_code=404, detail="这个邮箱没有绑定账号，先注册一个吧")
+    if payload.purpose in {"login", "reset"} and not registered:
+        raise HTTPException(status_code=404, detail="这个邮箱没有绑定账号")
     cooldown = email_send_cooldown_error(db, email)
     if cooldown:
         raise HTTPException(status_code=429, detail=cooldown)
@@ -363,6 +387,23 @@ def register(payload: RegisterRequest, response: Response, db: Session = Depends
     db.refresh(user)
     set_session_cookie(response, create_session(db, user))
     return user
+
+
+@public_router.post("/auth/reset-password", dependencies=[Depends(limit_auth_calls)])
+def reset_password(payload: EmailPasswordResetRequest, db: Session = Depends(get_db)) -> dict:
+    """通过绑定邮箱验证码永久修改密码，并立即吊销该用户的全部会话。"""
+    email = normalize_email(payload.email)
+    user = db.scalar(select(User).where(User.email == email))
+    if user is None or not user.is_active:
+        raise HTTPException(status_code=404, detail="这个邮箱没有可修改密码的账号")
+    code_error = consume_email_code(db, email, payload.email_code, purpose="reset")
+    if code_error:
+        raise HTTPException(status_code=400, detail=code_error)
+    user.password_hash = hash_password(payload.new_password)
+    for stored in db.scalars(select(UserSession).where(UserSession.user_id == user.id)):
+        db.delete(stored)
+    db.commit()
+    return {"ok": True}
 
 
 @public_router.post("/auth/login", response_model=UserRead,
@@ -515,6 +556,7 @@ async def _build_recommendation(payload: RecommendationRequest, db: Session, use
             status_code=422,
             detail=explanation or "按你的忌口没找到合适的菜，换点食材再试试。",
         )
+    recipe_photos.decorate_recipes(recipes)
     settings = get_settings()
     return RecommendationResponse(
         explanation=explanation,
@@ -1326,6 +1368,28 @@ def admin_create_user(payload: AdminUserCreate, db: Session = Depends(get_db)) -
     return {"id": user.id, "username": user.username}
 
 
+@admin_router.patch("/admin/users/{user_id}/email")
+def admin_bind_user_email(
+    user_id: int, payload: AdminUserEmailRequest, db: Session = Depends(get_db)
+) -> dict:
+    """管理员为没有邮箱的旧账号补绑定邮箱，不接触用户密码。"""
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    email = normalize_email(payload.email)
+    error = validate_email(email)
+    if error:
+        raise HTTPException(status_code=422, detail=error)
+    if user.email and user.email != email:
+        raise HTTPException(status_code=409, detail="这个账号已经绑定邮箱，不能覆盖")
+    existing = db.scalar(select(User).where(User.email == email).where(User.id != user_id))
+    if existing is not None:
+        raise HTTPException(status_code=409, detail="这个邮箱已经绑定其他账号")
+    user.email = email
+    db.commit()
+    return {"ok": True, "email": email}
+
+
 @admin_router.post("/admin/users/{user_id}/reset-password")
 def admin_reset_password(user_id: int, payload: PasswordResetRequest, db: Session = Depends(get_db)) -> dict:
     user = db.get(User, user_id)
@@ -1441,3 +1505,274 @@ def admin_user_summary(user_id: int, db: Session = Depends(get_db)) -> dict:
             for c in chats
         ],
     }
+
+
+# ========== 隐私保护和数据安全接口 ==========
+
+@router.get("/account/sessions")
+def list_my_sessions(
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    """查看当前账号的所有活跃登录会话（设备管理）"""
+    current_token = request.cookies.get(SESSION_COOKIE_NAME, "")
+    current_hash = hash_token(current_token) if current_token else ""
+    
+    sessions = list(
+        db.scalars(
+            select(UserSession)
+            .where(UserSession.user_id == user.id)
+            .where(UserSession.expires_at > datetime.now(timezone.utc))
+            .order_by(UserSession.created_at.desc())
+        )
+    )
+    
+    return [
+        {
+            "id": s.id,
+            "created_at": s.created_at.isoformat() if s.created_at else None,
+            "expires_at": s.expires_at.isoformat() if s.expires_at else None,
+            "is_current": s.token_hash == current_hash,
+        }
+        for s in sessions
+    ]
+
+
+@router.delete("/account/sessions/{session_id}")
+def revoke_session(
+    session_id: int,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """注销指定的登录会话（踢出某个设备）"""
+    session = db.get(UserSession, session_id)
+    if session is None or session.user_id != user.id:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    
+    current_token = request.cookies.get(SESSION_COOKIE_NAME, "")
+    is_current = session.token_hash == hash_token(current_token) if current_token else False
+    
+    db.delete(session)
+    db.commit()
+    
+    logger.info(
+        "session_revoked client=%s user=%s session_id=%s is_current=%s",
+        client_host(request), user.username, session_id, is_current
+    )
+    
+    return {"ok": True, "revoked_current_session": is_current}
+
+
+@router.post("/account/sessions/revoke-all")
+def revoke_all_sessions(
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """注销所有其他设备的登录会话（保留当前会话）"""
+    current_token = request.cookies.get(SESSION_COOKIE_NAME, "")
+    current_hash = hash_token(current_token) if current_token else ""
+    
+    revoked = 0
+    for session in db.scalars(
+        select(UserSession).where(UserSession.user_id == user.id)
+    ):
+        if session.token_hash != current_hash:
+            db.delete(session)
+            revoked += 1
+    
+    db.commit()
+    logger.info(
+        "all_sessions_revoked client=%s user=%s count=%s",
+        client_host(request), user.username, revoked
+    )
+    
+    return {"ok": True, "revoked_count": revoked}
+
+
+@router.get("/account/export")
+def export_my_data(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """导出当前用户的所有数据（GDPR 合规）"""
+    
+    # 用户基本信息
+    user_info = {
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "display_name": user.display_name,
+        "is_admin": user.is_admin,
+        "created_at": user.created_at.isoformat() if user.created_at else None,
+        "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
+    }
+    
+    # 饮食记录
+    meals = [
+        {
+            "id": m.id,
+            "description": m.description,
+            "meal_type": m.meal_type,
+            "eaten_at": m.eaten_at.isoformat() if m.eaten_at else None,
+            "created_at": m.created_at.isoformat() if m.created_at else None,
+        }
+        for m in db.scalars(
+            select(MealEntry)
+            .where(MealEntry.user_id == user.id)
+            .order_by(MealEntry.eaten_at.desc())
+        )
+    ]
+    
+    # 食材库存
+    pantry = [
+        {
+            "id": p.id,
+            "name": p.name,
+            "quantity": p.quantity,
+            "created_at": p.created_at.isoformat() if p.created_at else None,
+        }
+        for p in db.scalars(
+            select(PantryItem)
+            .where(PantryItem.user_id == user.id)
+            .order_by(PantryItem.name)
+        )
+    ]
+    
+    # 偏好设置
+    preferences = [
+        {
+            "id": pref.id,
+            "kind": pref.kind,
+            "topic": pref.topic,
+            "text": pref.text,
+            "active": pref.active,
+            "created_at": pref.created_at.isoformat() if pref.created_at else None,
+        }
+        for pref in db.scalars(
+            select(PreferenceNote)
+            .where(PreferenceNote.user_id == user.id)
+            .order_by(PreferenceNote.id)
+        )
+    ]
+    
+    # 聊天记录
+    chat_messages = [
+        {
+            "id": c.id,
+            "role": c.role,
+            "content": c.content,
+            "created_at": c.created_at.isoformat() if c.created_at else None,
+        }
+        for c in db.scalars(
+            select(ChatMessage)
+            .where(ChatMessage.user_id == user.id)
+            .order_by(ChatMessage.created_at)
+        )
+    ]
+    
+    # 决策会话
+    decision_sessions = [
+        {
+            "id": d.id,
+            "mode": d.mode,
+            "condition": d.condition,
+            "answers": d.answers,
+            "step": d.step,
+            "finished": d.finished,
+            "created_at": d.created_at.isoformat() if d.created_at else None,
+        }
+        for d in db.scalars(
+            select(DecisionSession)
+            .where(DecisionSession.user_id == user.id)
+            .order_by(DecisionSession.created_at.desc())
+        )
+    ]
+    
+    logger.info(
+        "data_exported user=%s meals=%d pantry=%d prefs=%d chats=%d sessions=%d",
+        user.username, len(meals), len(pantry), len(preferences), 
+        len(chat_messages), len(decision_sessions)
+    )
+    
+    return {
+        "user_info": user_info,
+        "meals": meals,
+        "pantry": pantry,
+        "preferences": preferences,
+        "chat_messages": chat_messages,
+        "decision_sessions": decision_sessions,
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "format_version": "1.0",
+    }
+
+
+@router.post("/account/deactivate")
+def deactivate_my_account(
+    payload: dict,
+    request: Request,
+    response: Response,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """永久注销账号（删除账号及所有关联数据，不可恢复）"""
+    
+    # 验证密码
+    password = payload.get("password", "")
+    if not verify_password(password, user.password_hash):
+        raise HTTPException(status_code=400, detail="密码不正确")
+    
+    # 验证确认字段
+    if payload.get("confirm") != "DEACTIVATE":
+        raise HTTPException(status_code=400, detail='需要 confirm="DEACTIVATE" 才能注销账号')
+    
+    # 管理员不能自己注销（防止误操作导致无管理员）
+    if user.is_admin:
+        admin_count = db.scalar(
+            select(func.count()).select_from(User).where(User.is_admin.is_(True))
+        ) or 0
+        if admin_count <= 1:
+            raise HTTPException(
+                status_code=403,
+                detail="你是唯一的管理员，无法注销账号。请先指定其他管理员。"
+            )
+    
+    username = user.username
+    user_id = user.id
+    
+    # 删除所有关联数据
+    own_sessions_ids = select(DecisionSession.id).where(DecisionSession.user_id == user_id)
+    
+    deleted: dict[str, int] = {}
+    
+    # 删除推荐反馈
+    result = db.execute(
+        delete(RecommendationFeedback)
+        .where(RecommendationFeedback.session_id.in_(own_sessions_ids))
+    )
+    deleted["recommendation_feedback"] = result.rowcount or 0
+    
+    # 删除用户数据
+    for model in (DecisionSession, ChatMessage, PreferenceNote, PantryItem, MealEntry):
+        result = db.execute(delete(model).where(model.user_id == user_id))
+        deleted[model.__tablename__] = result.rowcount or 0
+    
+    # 删除所有登录会话
+    result = db.execute(delete(UserSession).where(UserSession.user_id == user_id))
+    deleted["user_sessions"] = result.rowcount or 0
+    
+    # 删除账号本身
+    db.delete(user)
+    db.commit()
+    
+    # 清除当前 Cookie
+    clear_session_cookie(response)
+    
+    logger.warning(
+        "account_deactivated client=%s user=%s user_id=%s deleted=%s",
+        client_host(request), username, user_id, deleted,
+    )
+    return {"ok": True, "deleted": deleted}
+
