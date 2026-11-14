@@ -1,6 +1,10 @@
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 class Settings(BaseSettings):
@@ -35,11 +39,19 @@ class Settings(BaseSettings):
     auth_rate_limit_per_minute: int = 5
     allowed_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     amap_key: str = ""
+    pexels_api_key: str = ""
     daily_token_budget: int = 0
     llm_price_per_1k_input: float = 0.0
     llm_price_per_1k_output: float = 0.0
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    # Anchor local configuration to the project, so IDEs/services started from
+    # another working directory do not silently lose the model credentials.
+    # Container deployments still get their values from environment variables.
+    model_config = SettingsConfigDict(
+        env_file=PROJECT_ROOT / ".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     @property
     def cors_origins(self) -> list[str]:

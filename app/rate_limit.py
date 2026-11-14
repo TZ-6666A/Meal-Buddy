@@ -10,6 +10,7 @@ from app.security import client_host
 _WINDOW_SECONDS = 60.0
 _requests: dict[str, deque[float]] = defaultdict(deque)
 _auth_requests: dict[str, deque[float]] = defaultdict(deque)
+_photo_requests: dict[str, deque[float]] = defaultdict(deque)
 _lock = Lock()
 
 
@@ -52,7 +53,15 @@ def limit_auth_calls(request: Request) -> None:
     )
 
 
+def limit_recipe_photos(request: Request) -> None:
+    limit = 24
+    if limit <= 0:
+        return
+    _consume(_photo_requests, client_host(request), limit, "图片请求太频繁了，请稍后再试。")
+
+
 def reset_rate_limits() -> None:
     with _lock:
         _requests.clear()
         _auth_requests.clear()
+        _photo_requests.clear()

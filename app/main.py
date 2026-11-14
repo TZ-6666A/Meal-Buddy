@@ -15,6 +15,7 @@ from app.logging_config import setup_logging
 from app.security import get_current_user
 from app.services import watch
 from app.services.meal_assistant import close_clients
+from app.services.recipe_photos import close_client as close_recipe_photo_client
 
 setup_logging()
 settings = get_settings()
@@ -25,6 +26,11 @@ logger = logging.getLogger("fandazi.api")
 async def lifespan(_: FastAPI):
     # 生产环境缺 API_TOKEN 等关键配置时直接拒绝启动。
     settings.validate_for_startup()
+    logger.info(
+        "llm_configured=%s model=%s",
+        bool(settings.openai_api_key),
+        settings.openai_model,
+    )
     if not settings.api_token:
         logger.warning("未设置 API_TOKEN，接口无鉴权（仅适用于本地开发）")
     # 表结构由 Alembic 管理，启动时只做检查，不再隐式建表。
@@ -49,6 +55,7 @@ async def lifespan(_: FastAPI):
         await close_clients()
         await watch.close_search_client()
         await watch.close_cover_client()
+        await close_recipe_photo_client()
 
 
 app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)

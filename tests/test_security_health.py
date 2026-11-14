@@ -4,7 +4,7 @@ import pytest
 from starlette.requests import Request
 
 from app.accounts import hash_password
-from app.config import Settings
+from app.config import PROJECT_ROOT, Settings
 from app.db import get_db
 from app.models import User
 from app.security import client_host
@@ -127,6 +127,10 @@ def test_dev_auto_login_grants_admin_access(client, monkeypatch):
     assert client.get("/api/v1/export").status_code == 200
     # dev 用户是管理员，可以执行全站清理。
     assert client.post("/api/v1/maintenance/prune", json={"days": 90}).status_code == 200
+
+
+def test_settings_anchor_env_file_to_project_root():
+    assert Settings.model_config["env_file"] == PROJECT_ROOT / ".env"
 
 
 def test_production_startup_requires_api_token():

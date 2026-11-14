@@ -140,6 +140,8 @@
   .day .num{font-size:var(--fs-meta);font-weight:600;font-variant-numeric:tabular-nums}
   .day-meals{display:flex;flex-direction:column;align-self:stretch;width:100%;min-width:0;overflow:hidden;
     gap:2px;color:var(--ink-soft);font-size:9px;line-height:1.2;text-align:left}
+  .day-meals:empty{align-items:center;justify-content:center;color:var(--faint);font-size:8px;text-align:center}
+  .day-meals:empty:after{content:"暂无"}
   .day-meals > span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .day-meals b{margin-right:2px;color:var(--brand);font-weight:700}
   .day[aria-pressed="true"]{background:var(--brand);color:#fff}
@@ -356,11 +358,14 @@
   .wm-meals{grid-row:2;width:min(100%,64px);height:58px;overflow:hidden;padding:5px 3px;border-radius:9px;
     background:var(--sunken);display:flex;flex-direction:column;justify-content:center;gap:3px;
     color:var(--muted);transition:transform .16s,box-shadow .16s;font-size:9px;line-height:1.15;text-align:left}
+  .wm-meals:empty{align-items:center;color:var(--faint);text-align:center}
+  .wm-meals:empty:after{content:"暂无"}
+  .wm-meals.wm-empty{margin-top:0;padding:5px 3px;align-items:center;justify-content:center}
   .wm-meals > span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .wm-meals b{margin-right:2px;color:var(--brand);font-weight:700}
   .wm-day[data-logged="true"] .wm-meals{background:var(--brand-soft);color:var(--ink-soft)}
   .wm-day[data-today="true"] .wm-meals{box-shadow:0 0 0 2px var(--canvas),0 0 0 3.5px var(--brand)}
-  .wm-day[data-logged="false"] .wm-meals:after{content:"";align-self:center;width:4px;height:4px;border-radius:50%;background:var(--faint);opacity:.55}
+  .wm-day[data-logged="false"] .wm-meals:after{content:"暂无";align-self:center;width:auto;height:auto;border-radius:0;background:transparent;opacity:1}
   .wm-day:hover .wm-meals{transform:translateY(-2px)}
   .wm-day .d{grid-row:1;font-size:10px;color:var(--faint);line-height:1.2}
   .wm-day[data-today="true"] .d{color:var(--brand);font-weight:700}
@@ -391,7 +396,7 @@
   .pd-close{margin-left:auto;width:28px;height:28px;border-radius:50%;color:var(--faint);font-size:18px;line-height:1}
   .pd-close:hover{background:var(--sunken);color:var(--ink)}
   .pd-sub{margin:0 0 var(--s3);font-size:var(--fs-micro);color:var(--faint);line-height:1.6}
-  .pd-body{overflow-y:auto;display:grid;gap:var(--s3);padding-right:2px;flex:1}
+  .pd-body{overflow-y:auto;display:grid;gap:var(--s3);padding-right:2px;flex:1;min-height:0}
   .pd-group .t{font-size:var(--fs-micro);color:var(--muted);font-weight:600;margin-bottom:6px}
   .pd-chips{display:flex;flex-wrap:wrap;gap:6px}
   .pd-chip{display:inline-flex;align-items:center;gap:5px;padding:5px 6px 5px 10px;border-radius:var(--r-pill);
@@ -419,8 +424,27 @@
   /* ---------- 登录与管理 ---------- */
   .prefs-btn[hidden]{display:none}
   #auth-dialog{width:min(360px,calc(100% - 28px))}
-  #admin-dialog{width:min(560px,calc(100% - 28px));max-height:min(80vh,620px)}
+  #auth-reset{display:block}
+  #admin-dialog{width:min(560px,calc(100% - 28px));height:min(80vh,640px);max-height:min(80vh,640px);
+    height:min(80dvh,640px);max-height:min(80dvh,640px);overflow:hidden;overscroll-behavior:contain}
   #admin-dialog[open]{display:flex;flex-direction:column}
+  #admin-dialog > .pd-head,#admin-dialog > .admin-tabs{flex-shrink:0}
+  #admin-dialog > .pd-body{display:flex;flex-direction:column;overflow:hidden;padding-right:0;overscroll-behavior:contain}
+  #admin-dialog > .pd-body > section{flex:1;min-height:0;min-width:0;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
+  #admin-pane-users:not([hidden]){display:flex;flex-direction:column;overflow:hidden}
+  .admin-user-list{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
+  .admin-query{display:flex;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+  .admin-query input{flex:1;min-width:0;height:40px;padding:0 12px;border:1px solid var(--line);border-radius:var(--r-input);background:var(--sunken);outline:0}
+  .admin-query button{flex:0 0 auto;padding:0 14px;border:1px solid var(--line);border-radius:var(--r-pill);background:var(--surface);color:var(--muted)}
+  .admin-query button:hover{border-color:var(--brand);color:var(--brand)}
+  #admin-create{flex-shrink:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr) auto;
+    align-items:center;gap:8px;margin-top:12px;padding-top:12px}
+  #admin-create input,#admin-create button{height:40px;min-width:0}
+  #admin-create button{padding:0 18px;white-space:nowrap}
+  @media (max-width:480px){
+    #admin-create{grid-template-columns:minmax(0,1fr) minmax(0,1.3fr) auto}
+    #admin-create button{width:auto;padding:0 10px}
+  }
   .auth-field{display:grid;gap:4px;margin-bottom:10px}
   .auth-field[hidden]{display:none}
   .auth-field span{font-size:var(--fs-micro);color:var(--muted)}
@@ -432,7 +456,6 @@
   .auth-code-row input{flex:1;min-width:0}
   .auth-send{flex:0 0 auto;padding:0 12px;border-radius:var(--r-input);border:1px solid var(--brand);
     background:var(--surface);color:var(--brand);font-size:var(--fs-micro);white-space:nowrap}
-  .auth-send:disabled{opacity:.55}
   .auth-submit{width:100%;height:44px;border-radius:var(--r-pill);background:var(--brand);color:#fff;
     font-weight:600;font-size:var(--fs-body)}
   .auth-submit:disabled{opacity:.6}
@@ -741,6 +764,17 @@
   .cook-output .recipes{margin-top:var(--s4)}
   .recipe{position:relative;padding:20px;border-radius:16px;border-color:var(--line)}
   .recipe:first-child{border-color:#B8CDBC;box-shadow:0 12px 30px -24px #32785E66}
+  .recipe-layout{display:grid;grid-template-columns:minmax(150px,.78fr) minmax(0,1.22fr);gap:18px;align-items:start}
+  .recipe-layout:not(.has-photo){grid-template-columns:1fr}
+  .recipe-photo-wrap[hidden]{display:none}
+  .recipe-photo-wrap{position:relative;overflow:hidden;aspect-ratio:4/3;border-radius:10px;background:#edf2e9}
+  .recipe-photo{display:block;width:100%;height:100%;object-fit:cover;color:transparent}
+  .recipe-photo:not([src]){display:none}
+  .recipe-photo-credit{position:absolute;right:0;bottom:0;max-width:100%;padding:4px 7px;overflow:hidden;
+    background:#17231db8;color:#fff;font-size:10px;text-overflow:ellipsis;white-space:nowrap}
+  .recipe-photo-credit a{color:inherit;text-decoration:underline;text-underline-offset:2px}
+  .recipe-copy{min-width:0}
+  .recipe-copy .recipe-actions{margin-top:14px}
   .recipe:first-child::before{content:"为你优选";display:inline-block;margin-bottom:10px;
     padding:3px 8px;border-radius:var(--r-pill);background:#F5E8DC;color:var(--accent);
     font-size:11px;font-weight:650;letter-spacing:.04em}
@@ -875,6 +909,8 @@
     .opt::after{top:12px;bottom:12px}
   }
   @media (max-width:899px){
+    .recipe-layout{grid-template-columns:1fr}
+    .recipe-photo-wrap{aspect-ratio:16/10}
     .agent-note{display:none}
     .agent{padding-top:0}
     .mascot-wrap{margin-top:0}
@@ -1241,8 +1277,9 @@
 
   <div id="panel-cook" class="panel-body" hidden>
     <section class="card" aria-labelledby="t-ing">
-      <div class="label"><h2 id="t-ing">冰箱里有什么</h2><span>可多选</span></div>
-      <textarea id="ingredients" placeholder="输入家里现有食材，例如：番茄、鸡蛋、豆腐"></textarea>
+      <div class="label"><h2 id="t-ing">你现在有什么食材</h2><span>可多选</span></div>
+      <textarea id="ingredients" placeholder="输入你现在有的食材，例如：番茄、鸡蛋、豆腐"></textarea>
+      <p class="status">下面只是常用食材示例，不是限定范围；你可以直接输入任意食材。</p>
       <div class="chips" id="quick"></div>
       <div class="row">
         <span class="row-label">最多用时</span>
@@ -1251,7 +1288,7 @@
       </div>
       <button class="cta" id="recommend" type="button"><span id="cta-text">推荐晚餐</span><span class="arrow" aria-hidden="true">→</span></button>
     </section>
-    <div class="empty" id="empty">输入或点选冰箱里的食材，小厨娘才能给你配菜。</div>
+    <div class="empty" id="empty">输入或点选你现在有的食材，小厨娘会从炒菜、汤菜、凉菜、蒸菜等不同做法里帮你配菜。</div>
   </div>
 
   <div id="panel-log" class="panel-body" hidden>
@@ -1378,6 +1415,9 @@
     <label class="auth-field" id="auth-password-row" hidden><span>密码</span>
       <input id="auth-password" type="password" maxlength="64" autocomplete="current-password">
     </label>
+    <label class="auth-field" id="auth-password-confirm-row" hidden><span>确认新密码</span>
+      <input id="auth-password-confirm" type="password" maxlength="64" autocomplete="new-password">
+    </label>
     <div class="auth-field" id="auth-code-row" hidden>
       <span>邮箱验证码</span>
       <input id="auth-email-code" maxlength="6" inputmode="numeric" autocomplete="one-time-code" placeholder="6 位数字">
@@ -1385,6 +1425,7 @@
     <p class="auth-error" id="auth-error" role="alert"></p>
     <button class="auth-submit" id="auth-submit" type="submit">登录</button>
     <button class="auth-switch" id="auth-mode-switch" type="button" hidden>用验证码登录</button>
+    <button class="auth-switch" id="auth-reset" type="button">忘记密码？用邮箱修改</button>
     <button class="auth-switch" id="auth-switch" type="button">没有账号？注册一个</button>
   </form>
 </dialog>
@@ -1436,32 +1477,35 @@
     return authCfgPromise;
   }
 
-  // mode: login=邮箱+密码 | login-code=邮箱验证码免密 | register=注册
+  // mode: login=邮箱+密码 | login-code=邮箱验证码免密 | register=注册 | reset=邮箱验证码改密
   function setAuthMode(mode) {
     $('auth-form').dataset.mode = mode;
     const emailOn = authCfg.email_enabled;
     const password = mode === 'login';
     const codeLogin = mode === 'login-code';
     const register = mode === 'register';
-    $('auth-title').textContent = register ? '注册饭搭子' : '登录饭搭子';
+    const reset = mode === 'reset';
+    $('auth-title').textContent = register ? '注册饭搭子' : reset ? '修改密码' : '登录饭搭子';
     $('auth-sub').textContent = register
       ? '用 QQ 邮箱验证码注册，数据跟着账号走'
+      : reset ? '使用绑定邮箱验证码设置新密码'
       : codeLogin ? '输入注册时绑定的邮箱，收验证码直接登录' : '登录后，数据跟着账号走';
     $('auth-display-row').hidden = !register;
     $('auth-email-row').hidden = false;
-    $('auth-send').hidden = !(register || codeLogin);
+    $('auth-send').hidden = !(register || codeLogin || reset);
     $('auth-password-row').hidden = codeLogin;
-    $('auth-code-row').hidden = !(register || codeLogin);
-    $('auth-mode-switch').hidden = !emailOn || register;
+    $('auth-password-confirm-row').hidden = !reset;
+    $('auth-code-row').hidden = !(register || codeLogin || reset);
+    $('auth-mode-switch').hidden = !emailOn || register || reset;
     $('auth-mode-switch').textContent = codeLogin ? '用密码登录' : '用验证码登录';
+    $('auth-reset').hidden = register || reset;
     if (password) {
       clearInterval(sendTimer); sendCooldown = 0;
       $('auth-send').disabled = false;
       $('auth-send').textContent = '获取验证码';
     }
-    // 注册入口常驻：邮箱服务没配置时点击会给出明确提示，而不是藏起来
     $('auth-switch').textContent = register ? '已有账号？去登录' : '没有账号？注册一个';
-    $('auth-submit').textContent = register ? '注册并进入' : (codeLogin ? '验证码登录' : '登录');
+    $('auth-submit').textContent = register ? '注册并进入' : reset ? '确认修改密码' : (codeLogin ? '验证码登录' : '登录');
     $('auth-error').textContent = '';
   }
 
@@ -1482,7 +1526,7 @@
   }
 
   async function apiFetch(url, options = {}, retried = false) {
-    const res = await fetch(url, options);
+    const res = await fetch(url, { credentials: 'same-origin', ...options });
     if (res.status === 401 && !retried) {
       await ensureLoggedIn();
       return apiFetch(url, options, true);
@@ -1517,10 +1561,12 @@
     }
     $('auth-error').textContent = '';
     $('auth-send').disabled = true;
-    // 注册模式发注册码，验证码登录模式发登录码，两者不通用
-    const purpose = ($('auth-form').dataset.mode === 'register') ? 'register' : 'login';
+    // 注册、登录、改密码验证码分别核销，不能混用
+    const mode = $('auth-form').dataset.mode;
+    const purpose = mode === 'register' ? 'register' : mode === 'reset' ? 'reset' : 'login';
     try {
       const res = await fetch(`${api}/auth/email-code`, {
+        credentials: 'same-origin',
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, purpose }),
@@ -1570,6 +1616,27 @@
         return;
       }
       url = `${api}/auth/register`;
+    } else if (mode === 'reset') {
+      const password = $('auth-password').value;
+      const confirm = $('auth-password-confirm').value;
+      if (!$('auth-email').value.trim() || !$('auth-email-code').value.trim() || !password || !confirm) {
+        $('auth-error').textContent = '邮箱、验证码和两次新密码都要填';
+        return;
+      }
+      if (password.length < 8) {
+        $('auth-error').textContent = '新密码至少 8 位';
+        return;
+      }
+      if (password !== confirm) {
+        $('auth-error').textContent = '两次输入的新密码不一致';
+        return;
+      }
+      body = {
+        email: $('auth-email').value.trim(),
+        email_code: $('auth-email-code').value.trim(),
+        new_password: password,
+      };
+      url = `${api}/auth/reset-password`;
     } else {
       body = { username: $('auth-email').value.trim(), password: $('auth-password').value };
       if (!body.username || !body.password) {
@@ -1581,6 +1648,7 @@
     $('auth-submit').disabled = true;
     try {
       const res = await fetch(url, {
+        credentials: 'same-origin',
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -1588,6 +1656,15 @@
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         $('auth-error').textContent = data.detail || '出错了，再试一次';
+        return;
+      }
+      if (mode === 'reset') {
+        $('auth-password').value = '';
+        $('auth-password-confirm').value = '';
+        $('auth-email-code').value = '';
+        setAuthMode('login');
+        $('auth-error').textContent = '密码已永久修改，请使用新密码登录';
+        $('auth-email').focus();
         return;
       }
       currentUser = data;
@@ -1598,6 +1675,10 @@
     } finally {
       $('auth-submit').disabled = false;
     }
+  });
+  $('auth-reset').addEventListener('click', () => {
+    setAuthMode('reset');
+    $('auth-email').focus();
   });
   $('auth-switch').addEventListener('click', () => {
     const toRegister = $('auth-form').dataset.mode !== 'register';
@@ -2289,6 +2370,25 @@
   });
 
   let adminUsersCache = [];
+  let adminScrollLock = null;
+
+  function lockAdminBackground() {
+    if (adminScrollLock) return;
+    const root = document.documentElement;
+    const body = document.body;
+    adminScrollLock = { rootOverflow: root.style.overflow, bodyOverflow: body.style.overflow };
+    root.style.overflow = 'hidden';
+    body.style.overflow = 'hidden';
+  }
+
+  function unlockAdminBackground() {
+    if (!adminScrollLock) return;
+    const root = document.documentElement;
+    const body = document.body;
+    root.style.overflow = adminScrollLock.rootOverflow;
+    body.style.overflow = adminScrollLock.bodyOverflow;
+    adminScrollLock = null;
+  }
 
   function switchAdminTab(tab) {
     for (const btn of document.querySelectorAll('.admin-tab')) {
@@ -2307,60 +2407,63 @@
     pane.innerHTML = '<p class="pd-empty">加载中…</p>';
     const res = await apiFetch(`${api}/admin/users`);
     if (!res.ok) { pane.innerHTML = '<p class="pd-empty">加载失败，稍后再试</p>'; return; }
-    const users = await res.json();
-    adminUsersCache = users;
+    adminUsersCache = await res.json();
+    const render = () => {
+      const query = (pane.querySelector('#admin-user-query')?.value || '').trim().toLowerCase();
+      const users = adminUsersCache.filter(u => {
+        if (!query) return true;
+        return [u.username, u.email, u.display_name].some(value =>
+          String(value || '').toLowerCase().includes(query)
+        );
+      });
+      pane.querySelector('.admin-user-list').innerHTML = users.length ? `
+        <table class="admin-table">
+          <thead><tr><th>用户</th><th>数据</th><th>最近登录</th><th></th></tr></thead>
+          <tbody>
+            ${users.map(u => `
+              <tr>
+                <td><div>${escapeHtml(u.display_name || u.username)}${u.is_admin ? ' <b class="admin-tag">管理</b>' : ''}${u.is_active ? '' : ' <b class="admin-tag off">已停用</b>'}</div>${u.email ? `<div class="admin-sub">${escapeHtml(u.email)}</div>` : '<div class="admin-sub">未绑定邮箱</div>'}</td>
+                <td class="admin-num">${u.meals || 0} 吃 · ${u.decisions || 0} 决策</td>
+                <td class="admin-num">${u.last_login_at ? new Date(u.last_login_at).toLocaleDateString() : '—'}</td>
+                <td class="admin-acts">
+                  ${u.email ? '' : `<button type="button" data-act="bind-email" data-id="${u.id}">绑定邮箱</button>`}
+                  <button type="button" data-act="toggle" data-id="${u.id}">${u.is_active ? '停用' : '启用'}</button>
+                </td>
+              </tr>`).join('')}
+          </tbody>
+        </table>` : '<p class="pd-empty">没有匹配的用户</p>';
+      for (const btn of pane.querySelectorAll('[data-act]')) {
+        btn.addEventListener('click', async () => {
+          const id = btn.dataset.id;
+          if (btn.dataset.act === 'bind-email') {
+            const email = window.prompt('请输入该用户要绑定的邮箱：');
+            if (!email || !email.trim()) return;
+            const bindRes = await apiFetch(`${api}/admin/users/${id}/email`, {
+              method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ email: email.trim() }),
+            });
+            const bindData = await bindRes.json().catch(() => ({}));
+            if (!bindRes.ok) { window.alert(bindData.detail || '绑定邮箱失败'); return; }
+          } else {
+            await apiFetch(`${api}/admin/users/${id}/toggle-active`, { method: 'POST' });
+          }
+          loadAdminUsers();
+        });
+      }
+    };
     pane.innerHTML = `
-      <table class="admin-table">
-        <thead><tr><th>用户</th><th>数据</th><th>最近登录</th><th></th></tr></thead>
-        <tbody>
-          ${users.map(u => `
-            <tr>
-              <td><div>${escapeHtml(u.display_name || u.username)}${u.is_admin ? ' <b class="admin-tag">管理</b>' : ''}${u.is_active ? '' : ' <b class="admin-tag off">已停用</b>'}</div>${u.email ? `<div class="admin-sub">${escapeHtml(u.email)}</div>` : ''}</td>
-              <td class="admin-num">${u.meals || 0} 吃 · ${u.decisions || 0} 决策</td>
-              <td class="admin-num">${u.last_login_at ? new Date(u.last_login_at).toLocaleDateString() : '—'}</td>
-              <td class="admin-acts">
-                <button type="button" data-act="reset" data-id="${u.id}">重置密码</button>
-                <button type="button" data-act="toggle" data-id="${u.id}">${u.is_active ? '停用' : '启用'}</button>
-              </td>
-            </tr>`).join('')}
-        </tbody>
-      </table>
-      <form class="pd-add" id="admin-create">
-        <input id="admin-new-name" placeholder="用户名" maxlength="24">
-        <input id="admin-new-pass" placeholder="初始密码（至少8位）" maxlength="40" style="flex:1;min-width:0;height:38px;padding:0 10px;border-radius:12px;border:1px solid var(--line);background:var(--sunken);outline:0">
-        <button type="submit">建号</button>
+      <div class="admin-user-list"><p class="pd-empty">加载中…</p></div>
+      <form class="admin-query" id="admin-query" onsubmit="return false">
+        <input id="admin-user-query" aria-label="查询用户" placeholder="查询用户名、邮箱或昵称" autocomplete="off">
+        <button type="button" id="admin-query-clear">清除</button>
       </form>`;
-    pane.querySelector('#admin-create').addEventListener('submit', async event => {
-      event.preventDefault();
-      const res2 = await apiFetch(`${api}/admin/users`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          username: $('admin-new-name').value.trim(),
-          password: $('admin-new-pass').value,
-        }),
-      });
-      const data2 = await res2.json().catch(() => ({}));
-      if (!res2.ok) { window.alert(data2.detail || '创建失败'); return; }
-      $('admin-new-name').value = ''; $('admin-new-pass').value = '';
-      loadAdminUsers();
+    pane.querySelector('#admin-user-query').addEventListener('input', render);
+    pane.querySelector('#admin-query-clear').addEventListener('click', () => {
+      pane.querySelector('#admin-user-query').value = '';
+      render();
+      pane.querySelector('#admin-user-query').focus();
     });
-    for (const btn of pane.querySelectorAll('[data-act]')) {
-      btn.addEventListener('click', async () => {
-        const id = btn.dataset.id;
-        if (btn.dataset.act === 'reset') {
-          const pwd = window.prompt('给这个用户设置新密码（至少 8 位）：');
-          if (!pwd || pwd.length < 8) return;
-          await apiFetch(`${api}/admin/users/${id}/reset-password`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ new_password: pwd }),
-          });
-        } else {
-          await apiFetch(`${api}/admin/users/${id}/toggle-active`, { method: 'POST' });
-        }
-        loadAdminUsers();
-      });
-    }
+    render();
   }
 
   async function loadAdminStats() {
@@ -2418,12 +2521,20 @@
       </div>`;
   }
 
+  const adminDialog = $('admin-dialog');
+  adminDialog.addEventListener('close', unlockAdminBackground);
   $('admin-open').addEventListener('click', () => {
     adminUsersCache = [];
-    $('admin-dialog').showModal();
-    switchAdminTab('users');
+    lockAdminBackground();
+    try {
+      adminDialog.showModal();
+      switchAdminTab('users');
+    } catch (error) {
+      unlockAdminBackground();
+      throw error;
+    }
   });
-  $('admin-close').addEventListener('click', () => $('admin-dialog').close());
+  $('admin-close').addEventListener('click', () => adminDialog.close());
   for (const btn of document.querySelectorAll('.admin-tab')) {
     btn.addEventListener('click', () => switchAdminTab(btn.dataset.tab));
   }
@@ -2442,14 +2553,24 @@
       const tags = (r.tags || []).map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('');
       const ings = (r.ingredients || []).map(i => `${escapeHtml(i.name)} ${escapeHtml(i.amount)}`).join('、');
       const steps = (r.steps || []).map(s => `<li>${escapeHtml(s)}</li>`).join('');
+      const credit = r.image_photographer
+        ? `<a href="${escapeHtml(r.image_credit_url || 'https://www.pexels.com/') }" target="_blank" rel="noopener noreferrer">Photo by ${escapeHtml(r.image_photographer)} on Pexels</a>` : '';
       return `<article class="recipe">
-        <div class="recipe-top"><h3>${escapeHtml(r.name)}</h3><span class="mins">${escapeHtml(r.prep_minutes)} 分钟</span></div>
-        <p class="blurb">${escapeHtml(r.description)}</p>
-        ${tags ? `<div class="tags">${tags}</div>` : ''}
-        <details class="recipe-details"><summary>查看食材和做法</summary>
-          <hr class="rule"><p class="ing"><b>食材</b>${ings}</p><ol class="steps">${steps}</ol>
-        </details>
-        <div class="recipe-actions"><button class="start-cook" type="button">开始做饭<span>小厨娘陪你</span></button></div>
+        <div class="recipe-layout">
+          <div class="recipe-photo-wrap" hidden>
+            <img class="recipe-photo" alt="${escapeHtml(r.image_alt || `${r.name}成品图片`)}" loading="lazy" />
+            <small class="recipe-photo-credit" hidden>${credit}</small>
+          </div>
+          <div class="recipe-copy">
+            <div class="recipe-top"><h3>${escapeHtml(r.name)}</h3><span class="mins">${escapeHtml(r.prep_minutes)} 分钟</span></div>
+            <p class="blurb">${escapeHtml(r.description)}</p>
+            ${tags ? `<div class="tags">${tags}</div>` : ''}
+            <details class="recipe-details"><summary>查看食材和做法</summary>
+              <hr class="rule"><p class="ing"><b>食材</b>${ings}</p><ol class="steps">${steps}</ol>
+            </details>
+            <div class="recipe-actions"><button class="start-cook" type="button">开始做饭<span>小厨娘陪你</span></button></div>
+          </div>
+        </div>
         </article>`;
     }).join('') + '</div>' + (list.length > RECIPE_BATCH_SIZE ? `<div class="recipe-batch-bar">
       <span class="recipe-batch-info">${batchLabel}</span>
@@ -2457,6 +2578,33 @@
     </div>` : '');
     $('results').querySelectorAll('.start-cook').forEach((button, index) => {
       button.onclick = () => startCooking(visible[index]);
+    });
+    $('results').querySelectorAll('.recipe').forEach((card, index) => {
+      const recipe = visible[index];
+      const layout = card.querySelector('.recipe-layout');
+      const photoWrap = card.querySelector('.recipe-photo-wrap');
+      const image = card.querySelector('.recipe-photo');
+      image.onload = () => {
+        if (!card.isConnected) return;
+        photoWrap.hidden = false;
+        layout.classList.add('has-photo');
+      };
+      image.onerror = () => {
+        photoWrap.hidden = true;
+        layout.classList.remove('has-photo');
+      };
+      fetch(`/api/v1/recipe-photo-info?${new URLSearchParams({ name: recipe.name })}`)
+        .then(response => response.ok ? response.json() : null)
+        .then(info => {
+          if (!info || !card.isConnected) return;
+          if (info.found) {
+            image.src = info.image_url;
+            const credit = card.querySelector('.recipe-photo-credit');
+            credit.innerHTML = `Photo by <a href="${escapeHtml(info.photographer_url || 'https://www.pexels.com/')}" target="_blank" rel="noopener noreferrer">${escapeHtml(info.photographer)}</a> on <a href="${escapeHtml(info.pexels_url || 'https://www.pexels.com/')}" target="_blank" rel="noopener noreferrer">Pexels</a>`;
+            credit.hidden = false;
+          }
+        })
+        .catch(() => {});
     });
     const nextButton = $('next-recipe-batch');
     if (nextButton) nextButton.onclick = () => {
@@ -2828,7 +2976,7 @@
       hint.classList.remove('warn');
       void hint.offsetWidth;
       hint.classList.add('warn');
-      setMascotTemporarily('speaking', '冰箱里有什么呀？先选几样食材');
+      setMascotTemporarily('speaking', '你现在有什么食材？先选几样或直接输入');
       $('ingredients').focus();
       syncCookOutputVisibility();
       return;
@@ -2974,7 +3122,8 @@
       : '暂无饮食记录';
   }
   function mealLinesMarkup(entries, className) {
-    return `<span class="${className}" aria-hidden="true">${entries.map(entry =>
+    const stateClass = entries.length ? '' : ' wm-empty';
+    return `<span class="${className}${stateClass}" aria-hidden="true">${entries.map(entry =>
       `<span><b>${entry.shortType}</b>${escapeHtml(entry.description)}</span>`
     ).join('')}</span>`;
   }
@@ -3363,7 +3512,7 @@
   // 启动门卫：先确认登录态，没登录就弹登录框，登录成功后才初始化页面。
   (async () => {
     try {
-      const res = await fetch(`${api}/auth/me`);
+      const res = await fetch(`${api}/auth/me`, { credentials: 'same-origin' });
       if (res.ok) {
         currentUser = await res.json();
       } else {

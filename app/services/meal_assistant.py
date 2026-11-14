@@ -78,8 +78,8 @@ INGREDIENT_ALIASES = {
     "盐": {"盐", "食盐", "加盐", "放盐", "撒盐", "少许盐", "适量盐"},
     "醋": {"白醋", "陈醋", "米醋"},
     "糖": {"白糖", "冰糖", "砂糖"},
-    "料酒": {"料酒"},
-    "淀粉": {"淀粉", "水淀粉"},
+    "料酒": {"料酒", "黄酒"},
+    "淀粉": {"淀粉", "水淀粉", "生粉"},
     "姜": {"生姜", "姜片", "姜丝"},
     "胡椒粉": {"白胡椒", "白胡椒粉", "黑胡椒", "胡椒粉"},
     "蚝油": {"蚝油"},
@@ -91,8 +91,10 @@ INGREDIENT_ALIAS_KEYS = {
 }
 
 # 厨房常备调料：用户只写主料（如「鸡蛋、番茄」）时，不能因为缺油盐酱醋就否掉整道菜。
+# 这份清单要和 app/prompts/recommend_base.txt 里“家庭常备调料”的说法保持一致。
 PANTRY_STAPLES = {
     "食用油", "盐", "酱油", "醋", "糖", "料酒", "淀粉", "蚝油", "胡椒粉",
+    "鸡精", "味精",
 }
 
 PREFERENCES_GUARD = (
@@ -251,11 +253,17 @@ class DietAgent:
                 "rule",
             )
         settings = get_settings()
-        if settings.openai_api_key:
-            polished = await self._polish(message, notes, history, earlier_summary)
-            if polished:
-                return polished, learned, "llm"
-        return self._fallback(message), learned, "rule"
+        if not settings.openai_api_key:
+            logger.warning(
+                "chat_llm_unconfigured model=%s prompt_version=%s",
+                settings.openai_model,
+                PROMPT_VERSION,
+            )
+            return self._fallback(message), learned, "fallback"
+        polished = await self._polish(message, notes, history, earlier_summary)
+        if polished:
+            return polished, learned, "llm"
+        return self._fallback(message), learned, "fallback"
 
     async def _polish(self, message: str, notes: list[str],
                       history: list[dict[str, str]] | None = None,
@@ -374,8 +382,8 @@ class DietAgent:
         recent_meals: list[str],
         pantry: list[str],
         notes: list[str] | None = None,
-        notify: Callable[[str], Awaitable[None]] | None = None,
         blocked: list[str] | None = None,
+        notify: Callable[[str], Awaitable[None]] | None = None,
     ) -> tuple[str, list[Recipe], str]:
         started = time.perf_counter()
         banned = expand_blocked(blocked or [])
@@ -394,10 +402,10 @@ class DietAgent:
                                exc_info=True)
                 explanation, recipes, source = self._degraded(
                     request, pantry, banned, recent_meals, exc
-                if notify is not None:
-                    await notify("正在核对每道菜的食材清单…")
                 )
             else:
+                if notify is not None:
+                    await notify("正在核对每道菜的食材清单…")
                 if recipes:
                     recipes = self._ensure_recipe_pool(request, pantry, banned, recipes)
                     if recipes:
@@ -447,42 +455,22 @@ class DietAgent:
             seen.add(recipe.name)
             pool.append(recipe)
         ranked = self._rank_recipes_for_time(request.available_minutes, pool)
-        return self._spread_recipe_styles(ranked)[:12]
+        return self._spread_recipe_styles(ranked)[:16]
 
     @staticmethod
     def _rank_recipes_for_time(available_minutes: int, recipes: list[Recipe]) -> list[Recipe]:
-        """Prioritize recipes near the selected time, with a long-time style fallback."""
+        """Prioritize recipes near the selected time without style bias."""
         target_floor = max(5, available_minutes - 15)
-        in_target_range = [
-            recipe for recipe in recipes
-            if target_floor <= recipe.prep_minutes <= available_minutes
-        ]
-        preferred_style = ""
-        if available_minutes > 30:
-            def target_text(recipe: Recipe) -> str:
-                return " ".join([recipe.name, *recipe.tags])
 
-            has_stir_fry = any(
-                any(word in target_text(recipe) for word in ("炒", "煸"))
-                for recipe in in_target_range
-            )
-            has_soup = any(
-                any(word in target_text(recipe) for word in ("汤", "羹", "粥"))
-                for recipe in recipes
-            )
-            preferred_style = "stir_fry" if has_stir_fry else "soup" if has_soup else ""
-
-        def rank(recipe: Recipe) -> tuple[int, int]:
-            text = " ".join([recipe.name, *recipe.tags])
-            if preferred_style == "stir_fry":
-                preferred = any(word in text for word in ("炒", "煸"))
-            elif preferred_style == "soup":
-                preferred = any(word in text for word in ("汤", "羹", "粥"))
-            else:
-                preferred = False
+        def rank(recipe: Recipe) -> tuple[int, int, int]:
             in_range = target_floor <= recipe.prep_minutes <= available_minutes
-            group = 0 if preferred and in_range else 1 if in_range else 2 if preferred else 3
-            return group, -recipe.prep_minutes
+            # Match the user's available time first; cooking style is handled by
+            # _spread_recipe_styles so time matching cannot force all stir-fries.
+            return (
+                0 if in_range else 1,
+                abs(available_minutes - recipe.prep_minutes),
+                -recipe.prep_minutes,
+            )
 
         return sorted(recipes, key=rank)
 
@@ -513,7 +501,7 @@ class DietAgent:
         for recipe in recipes:
             buckets.setdefault(cls._recipe_style(recipe), []).append(recipe)
 
-        style_priority = ("stir_fry", "cold", "steam", "soup", "fry", "braise", "other")
+        style_priority = ("cold", "steam", "soup", "stir_fry", "fry", "braise", "other")
         result = [recipes[0]]
         first_style = cls._recipe_style(recipes[0])
         buckets[first_style].pop(0)

@@ -40,6 +40,99 @@ def test_invalid_recommendation_json_records_single_failed_call(monkeypatch, fak
     assert snapshot["last_failure"].startswith("recommend:")
 
 
+def test_chat_uses_model_and_records_success(monkeypatch, fake_settings):
+    from app.services import meal_assistant
+
+    completion = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content="番茄豆腐汤很合适。"))],
+        usage=SimpleNamespace(prompt_tokens=11, completion_tokens=7),
+    )
+    monkeypatch.setattr(
+        meal_assistant,
+        "get_chat_client",
+        lambda settings: FakeCompletionClient(completion),
+    )
+    usage.reset()
+
+    reply, learned, source = asyncio.run(
+        DietAgent().chat("鸡蛋和豆腐怎么搭配", [])
+    )
+
+    assert reply == "番茄豆腐汤很合适。"
+    assert learned == []
+    assert source == "llm"
+    snapshot = usage.snapshot()
+    assert snapshot["calls"] == 1
+    assert snapshot["failed"] == 0
+    assert snapshot["prompt_tokens"] == 11
+    assert snapshot["completion_tokens"] == 7
+
+
+def test_chat_without_key_returns_fallback_and_logs_configuration_gap(
+    monkeypatch, caplog
+):
+    from types import SimpleNamespace
+    from app.services import meal_assistant
+
+    monkeypatch.setattr(
+        meal_assistant,
+        "get_settings",
+        lambda: SimpleNamespace(
+            openai_api_key="",
+            openai_model="test-model",
+        ),
+    )
+    usage.reset()
+
+    with caplog.at_level("WARNING", logger="fandazi.agent"):
+        reply, learned, source = asyncio.run(
+            DietAgent().chat("鸡蛋和豆腐怎么搭配", [])
+        )
+
+    assert reply == DietAgent._fallback("鸡蛋和豆腐怎么搭配")
+    assert learned == []
+    assert source == "fallback"
+    assert usage.snapshot()["calls"] == 0
+    assert "chat_llm_unconfigured" in caplog.text
+    assert "test-model" in caplog.text
+
+
+def test_chat_model_failure_returns_fallback_and_records_failure(
+    monkeypatch, fake_settings, caplog
+):
+    from app.services import meal_assistant
+
+    class FailingClient:
+        chat = SimpleNamespace(
+            completions=SimpleNamespace(
+                create=lambda **kwargs: None,
+            )
+        )
+
+        async def _create(self, **kwargs):
+            raise RuntimeError("upstream unavailable")
+
+    failing = FailingClient()
+    failing.chat.completions.create = failing._create
+    monkeypatch.setattr(meal_assistant, "get_chat_client", lambda settings: failing)
+    usage.reset()
+
+    with caplog.at_level("ERROR", logger="fandazi.agent"):
+        reply, learned, source = asyncio.run(
+            DietAgent().chat("鸡蛋和豆腐怎么搭配", [])
+        )
+
+    assert reply == DietAgent._fallback("鸡蛋和豆腐怎么搭配")
+    assert learned == []
+    assert source == "fallback"
+    snapshot = usage.snapshot()
+    assert snapshot["calls"] == 1
+    assert snapshot["failed"] == 1
+    assert snapshot["last_failure"].startswith("chat:RuntimeError")
+    assert "upstream unavailable" in caplog.text
+    assert "test-key" not in caplog.text
+
+
 def test_model_clients_are_reused(monkeypatch, fake_settings):
     from app.services import meal_assistant
 
