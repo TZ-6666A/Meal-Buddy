@@ -52,6 +52,34 @@ def test_search_accepts_only_pixabay_image_host(monkeypatch):
     assert result["pixabay_url"] == "https://pixabay.com/photos/tomato-food-1/"
 
 
+def test_search_accepts_pixabay_get_image_url(monkeypatch):
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "hits": [{
+                    "largeImageURL": "https://pixabay.com/get/abc123.jpg",
+                    "user": "Chef",
+                    "user_id": 12345,
+                    "pageURL": "https://pixabay.com/photos/tomato-food-1/",
+                }]
+            }
+
+    class FakeClient:
+        async def get(self, *args, **kwargs):
+            return FakeResponse()
+
+    monkeypatch.setattr(recipe_photos, "_client_for_requests", lambda: FakeClient())
+    monkeypatch.setattr(recipe_photos, "get_settings", lambda: SimpleNamespace(pixabay_api_key="test-key"))
+
+    import asyncio
+    result = asyncio.run(recipe_photos._find_photo("番茄炒蛋"))
+
+    assert result["url"] == "https://pixabay.com/get/abc123.jpg"
+
+
 def test_search_rejects_untrusted_image_host(monkeypatch):
     class FakeResponse:
         def raise_for_status(self):
@@ -113,6 +141,7 @@ def test_fetch_photo_rejects_non_image_content_type(monkeypatch):
     class FakeStream:
         status_code = 200
         headers = {"content-type": "text/html"}
+        url = "https://cdn.pixabay.com/photo/2024/01/01/12/00/dish.jpg"
 
         async def __aenter__(self):
             return self
@@ -143,6 +172,7 @@ def test_fetch_photo_caches_successful_pixabay_download(monkeypatch):
     class FakeStream:
         status_code = 200
         headers = {"content-type": "image/jpeg; charset=binary"}
+        url = "https://cdn.pixabay.com/photo/2024/01/01/12/00/dish.jpg"
 
         async def __aenter__(self):
             return self
