@@ -4,17 +4,18 @@ import html
 import re
 import time
 from collections import OrderedDict
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import quote, urlencode, urlsplit
 
 import httpx
 
 from app.config import get_settings
 
-PEXELS_API = "https://api.pexels.com/v1/search"
-ALLOWED_IMAGE_HOST = "images.pexels.com"
+PIXABAY_API = "https://pixabay.com/api/"
+ALLOWED_IMAGE_HOST = "cdn.pixabay.com"
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/avif"}
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
-SEARCH_TTL = 6 * 60 * 60
+# Pixabay asks API consumers to cache search responses for 24 hours.
+SEARCH_TTL = 24 * 60 * 60
 IMAGE_TTL = 24 * 60 * 60
 MAX_CACHE_ENTRIES = 256
 MAX_IMAGE_CACHE_BYTES = 48 * 1024 * 1024
@@ -122,23 +123,44 @@ def _query_variants(name: str) -> list[str]:
     return list(dict.fromkeys(variant.strip() for variant in variants if variant.strip()))
 
 
+def _safe_pixabay_url(value: object) -> str:
+    url = str(value or "")
+    parsed = urlsplit(url)
+    if (
+        parsed.scheme == "https"
+        and parsed.hostname in {"pixabay.com", "www.pixabay.com"}
+        and parsed.port in (None, 443)
+        and parsed.username is None
+        and parsed.password is None
+        and not parsed.fragment
+    ):
+        return url
+    return "https://pixabay.com/"
+
+
 def _photo_from_payload(photo: object) -> dict | None:
     if not isinstance(photo, dict):
         return None
-    src = photo.get("src", {})
-    image_url = str(src.get("large") or src.get("medium") or "") if isinstance(src, dict) else ""
+    image_url = str(photo.get("largeImageURL") or photo.get("webformatURL") or "")
     parsed = urlsplit(image_url)
     if (
         parsed.scheme != "https" or parsed.hostname != ALLOWED_IMAGE_HOST or parsed.port not in (None, 443)
         or parsed.username is not None or parsed.password is not None or parsed.fragment
-        or not parsed.path.startswith("/photos/")
+        or not parsed.path.startswith("/photo/")
     ):
         return None
+    user = str(photo.get("user") or "Pixabay")[:100]
+    user_id = str(photo.get("user_id") or "").strip()
+    photographer_url = (
+        f"https://pixabay.com/users/{quote(user, safe='')}-{quote(user_id, safe='')}/"
+        if user_id and re.fullmatch(r"\d+", user_id)
+        else "https://pixabay.com/"
+    )
     return {
         "url": image_url,
-        "photographer": str(photo.get("photographer") or "Pexels")[:100],
-        "photographer_url": _safe_photographer_url(photo.get("photographer_url")),
-        "pexels_url": _safe_pexels_url(photo.get("url")),
+        "photographer": user,
+        "photographer_url": photographer_url,
+        "pixabay_url": _safe_pixabay_url(photo.get("pageURL")),
     }
 
 
@@ -147,24 +169,33 @@ async def _find_photo(name: str) -> dict | None:
     variants = _query_variants(query)
     if not variants:
         return None
-    cache_key = "|".join(variants)
+    cache_key = "pixabay|" + "|".join(variants)
     cached = _cache_get(_search_cache, cache_key)
     if cached is not None:
         return cached[0]
-    key = str(getattr(get_settings(), "pexels_api_key", "") or "").strip()
+    key = str(getattr(get_settings(), "pixabay_api_key", "") or "").strip()
     if not key:
         _cache_set(_search_cache, cache_key, (None,), 300)
         return None
     try:
         for search_query in variants:
             response = await _client_for_requests().get(
-                PEXELS_API,
-                params={"query": search_query, "per_page": 1},
-                headers={"Authorization": key},
+                PIXABAY_API,
+                params={
+                    "key": key,
+                    "q": search_query,
+                    "image_type": "photo",
+                    "per_page": 3,
+                    "safesearch": "true",
+                    "lang": "en",
+                },
             )
             response.raise_for_status()
-            photos = response.json().get("photos", [])
-            photo = _photo_from_payload(photos[0] if photos else None)
+            hits = response.json().get("hits", [])
+            photo = next(
+                (candidate for hit in hits if (candidate := _photo_from_payload(hit))),
+                None,
+            )
             if photo:
                 _cache_set(_search_cache, cache_key, (photo,), SEARCH_TTL)
                 return photo
@@ -173,18 +204,6 @@ async def _find_photo(name: str) -> dict | None:
     except (httpx.HTTPError, ValueError, KeyError, TypeError):
         _cache_set(_search_cache, cache_key, (None,), 60)
         return None
-
-
-def _safe_photographer_url(value: object) -> str:
-    url = str(value or "")
-    parsed = urlsplit(url)
-    return url if parsed.scheme == "https" and parsed.hostname == "www.pexels.com" else "https://www.pexels.com/"
-
-
-def _safe_pexels_url(value: object) -> str:
-    url = str(value or "")
-    parsed = urlsplit(url)
-    return url if parsed.scheme == "https" and parsed.hostname == "www.pexels.com" else "https://www.pexels.com/"
 
 
 def _placeholder(name: str) -> bytes:
@@ -219,7 +238,9 @@ async def photo_info(name: str) -> dict:
         "image_url": f"/api/v1/recipe-photo?{urlencode({'name': name})}",
         "photographer": photo["photographer"] if photo else "",
         "photographer_url": photo["photographer_url"] if photo else "",
-        "pexels_url": photo["pexels_url"] if photo else "",
+        "pixabay_url": photo["pixabay_url"] if photo else "",
+        "source_name": "Pixabay" if photo else "",
+        "source_url": photo["pixabay_url"] if photo else "",
     }
 
 

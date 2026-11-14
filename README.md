@@ -33,9 +33,9 @@ Open `http://127.0.0.1:8000/docs` to inspect the API. The development server bin
 AMAP_KEY=你的高德Web服务Key
 ```
 
-`.env` 已加入 Git 忽略规则，真实 Key 只保存在服务端，不要粘贴到网页代码、URL、日志、截图或提交到仓库。浏览器只请求同源的 `/api/v1/*`，OpenAI、高德和 Pexels Key 不会下发给前端。未配置高德 Key 时，附近推荐会提示配置方法，其他本地推荐仍可使用。
+`.env` 已加入 Git 忽略规则，真实 Key 只保存在服务端，不要粘贴到网页代码、URL、日志、截图或提交到仓库。浏览器只请求同源的 `/api/v1/*`，OpenAI、高德和 Pixabay Key 不会下发给前端。未配置高德 Key 时，附近推荐会提示配置方法，其他本地推荐仍可使用。
 
-推荐菜谱配图使用 Pexels API 搜索。将 Pexels API Key 填入服务器 `.env` 的 `PEXELS_API_KEY` 并重启应用；图片由后端同源代理并缓存。未配置或图片服务暂不可用时，页面显示菜名占位图，不影响推荐与做饭流程。
+推荐菜谱配图使用 Pixabay API 搜索。申请地址：`https://pixabay.com/api/docs/`。将 Pixabay API Key 填入服务器 `.env` 的 `PIXABAY_API_KEY` 并重启应用；图片由后端下载、同源代理并缓存，页面显示 Pixabay 来源署名。未配置或图片服务暂不可用时，页面显示菜名占位图，不影响推荐与做饭流程。
 
 `/docs` and `/openapi.json` remain public for local development. Anyone who can reach them can inspect the API contract; do not expose them to an untrusted network.
 

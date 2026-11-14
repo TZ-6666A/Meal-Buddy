@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     auth_rate_limit_per_minute: int = 5
     allowed_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     amap_key: str = ""
-    pexels_api_key: str = ""
+    pixabay_api_key: str = ""
     daily_token_budget: int = 0
     llm_price_per_1k_input: float = 0.0
     llm_price_per_1k_output: float = 0.0
