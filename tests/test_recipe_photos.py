@@ -201,6 +201,35 @@ def test_fetch_photo_caches_successful_pixabay_download(monkeypatch):
     assert client.calls == 1
 
 
+def test_fetch_photo_accepts_pixabay_get_final_url(monkeypatch):
+    photo = {"url": "https://pixabay.com/get/abc123.jpg"}
+    monkeypatch.setattr(recipe_photos, "_find_photo", lambda name: _async_value(photo))
+
+    class FakeStream:
+        status_code = 200
+        headers = {"content-type": "image/jpeg"}
+        url = "https://pixabay.com/get/abc123.jpg"
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+        async def aiter_bytes(self):
+            yield b"jpeg-bytes"
+
+    class FakeClient:
+        def stream(self, *args, **kwargs):
+            return FakeStream()
+
+    monkeypatch.setattr(recipe_photos, "_client_for_requests", lambda: FakeClient())
+    import asyncio
+    content, content_type, found = asyncio.run(recipe_photos.fetch_photo("豆腐蒸蛋"))
+
+    assert (content, content_type, found) == (b"jpeg-bytes", "image/jpeg", True)
+
+
 async def _async_value(value):
     return value
 
