@@ -12,6 +12,7 @@ from app.config import get_settings
 
 PIXABAY_API = "https://pixabay.com/api/"
 ALLOWED_IMAGE_HOST = "cdn.pixabay.com"
+ALLOWED_IMAGE_ENTRY_HOST = "pixabay.com"
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/avif"}
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 # Pixabay asks API consumers to cache search responses for 24 hours.
@@ -144,9 +145,16 @@ def _photo_from_payload(photo: object) -> dict | None:
     image_url = str(photo.get("largeImageURL") or photo.get("webformatURL") or "")
     parsed = urlsplit(image_url)
     if (
-        parsed.scheme != "https" or parsed.hostname != ALLOWED_IMAGE_HOST or parsed.port not in (None, 443)
+        parsed.scheme != "https"
+        or parsed.hostname not in {ALLOWED_IMAGE_HOST, ALLOWED_IMAGE_ENTRY_HOST}
+        or parsed.port not in (None, 443)
         or parsed.username is not None or parsed.password is not None or parsed.fragment
-        or not parsed.path.startswith("/photo/")
+        or (
+            parsed.hostname == ALLOWED_IMAGE_HOST and not parsed.path.startswith("/photo/")
+        )
+        or (
+            parsed.hostname == ALLOWED_IMAGE_ENTRY_HOST and not parsed.path.startswith("/get/")
+        )
     ):
         return None
     user = str(photo.get("user") or "Pixabay")[:100]
@@ -255,10 +263,26 @@ async def fetch_photo(name: str, fallback_only: bool = False) -> tuple[bytes, st
     if cached is not None:
         return cached[0], cached[1], True
     parsed = urlsplit(url)
-    if parsed.scheme != "https" or parsed.hostname != ALLOWED_IMAGE_HOST or parsed.port not in (None, 443):
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname not in {ALLOWED_IMAGE_HOST, ALLOWED_IMAGE_ENTRY_HOST}
+        or parsed.port not in (None, 443)
+        or parsed.username is not None or parsed.password is not None or parsed.fragment
+        or (parsed.hostname == ALLOWED_IMAGE_HOST and not parsed.path.startswith("/photo/"))
+        or (parsed.hostname == ALLOWED_IMAGE_ENTRY_HOST and not parsed.path.startswith("/get/"))
+    ):
         return _placeholder(name), "image/svg+xml", False
     try:
-        async with _client_for_requests().stream("GET", url) as response:
+        async with _client_for_requests().stream("GET", url, follow_redirects=True) as response:
+            final = urlsplit(str(response.url))
+            if (
+                final.scheme != "https"
+                or final.hostname != ALLOWED_IMAGE_HOST
+                or final.port not in (None, 443)
+                or final.username is not None or final.password is not None or final.fragment
+                or not final.path.startswith("/photo/")
+            ):
+                raise ValueError("untrusted image redirect")
             if response.status_code != 200:
                 raise ValueError("upstream status")
             content_type = response.headers.get("content-type", "").split(";", 1)[0].lower()
