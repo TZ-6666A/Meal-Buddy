@@ -172,6 +172,22 @@ def _photo_from_payload(photo: object) -> dict | None:
     }
 
 
+def _is_allowed_image_url(value: object) -> bool:
+    parsed = urlsplit(str(value or ""))
+    return (
+        parsed.scheme == "https"
+        and parsed.hostname in {ALLOWED_IMAGE_HOST, ALLOWED_IMAGE_ENTRY_HOST}
+        and parsed.port in (None, 443)
+        and parsed.username is None
+        and parsed.password is None
+        and not parsed.fragment
+        and (
+            (parsed.hostname == ALLOWED_IMAGE_HOST and parsed.path.startswith("/photo/"))
+            or (parsed.hostname == ALLOWED_IMAGE_ENTRY_HOST and parsed.path.startswith("/get/"))
+        )
+    )
+
+
 async def _find_photo(name: str) -> dict | None:
     query = _normalized_query(name)
     variants = _query_variants(query)
@@ -262,26 +278,11 @@ async def fetch_photo(name: str, fallback_only: bool = False) -> tuple[bytes, st
     cached = _cached_image(url)
     if cached is not None:
         return cached[0], cached[1], True
-    parsed = urlsplit(url)
-    if (
-        parsed.scheme != "https"
-        or parsed.hostname not in {ALLOWED_IMAGE_HOST, ALLOWED_IMAGE_ENTRY_HOST}
-        or parsed.port not in (None, 443)
-        or parsed.username is not None or parsed.password is not None or parsed.fragment
-        or (parsed.hostname == ALLOWED_IMAGE_HOST and not parsed.path.startswith("/photo/"))
-        or (parsed.hostname == ALLOWED_IMAGE_ENTRY_HOST and not parsed.path.startswith("/get/"))
-    ):
+    if not _is_allowed_image_url(url):
         return _placeholder(name), "image/svg+xml", False
     try:
         async with _client_for_requests().stream("GET", url, follow_redirects=True) as response:
-            final = urlsplit(str(response.url))
-            if (
-                final.scheme != "https"
-                or final.hostname != ALLOWED_IMAGE_HOST
-                or final.port not in (None, 443)
-                or final.username is not None or final.password is not None or final.fragment
-                or not final.path.startswith("/photo/")
-            ):
+            if not _is_allowed_image_url(response.url):
                 raise ValueError("untrusted image redirect")
             if response.status_code != 200:
                 raise ValueError("upstream status")
