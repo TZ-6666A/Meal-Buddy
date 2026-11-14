@@ -1241,8 +1241,9 @@
 
   <div id="panel-cook" class="panel-body" hidden>
     <section class="card" aria-labelledby="t-ing">
-      <div class="label"><h2 id="t-ing">冰箱里有什么</h2><span>可多选</span></div>
-      <textarea id="ingredients" placeholder="输入家里现有食材，例如：番茄、鸡蛋、豆腐"></textarea>
+      <div class="label"><h2 id="t-ing">你现在有什么食材</h2><span>可多选</span></div>
+      <textarea id="ingredients" placeholder="输入你现在有的食材，例如：番茄、鸡蛋、豆腐"></textarea>
+      <p class="status">下面只是常用食材示例，不是限定范围；你可以直接输入任意食材。</p>
       <div class="chips" id="quick"></div>
       <div class="row">
         <span class="row-label">最多用时</span>
@@ -1251,7 +1252,7 @@
       </div>
       <button class="cta" id="recommend" type="button"><span id="cta-text">推荐晚餐</span><span class="arrow" aria-hidden="true">→</span></button>
     </section>
-    <div class="empty" id="empty">输入或点选冰箱里的食材，小厨娘才能给你配菜。</div>
+    <div class="empty" id="empty">输入或点选你现在有的食材，小厨娘会从炒菜、汤菜、凉菜、蒸菜等不同做法里帮你配菜。</div>
   </div>
 
   <div id="panel-log" class="panel-body" hidden>
@@ -2828,7 +2829,7 @@
       hint.classList.remove('warn');
       void hint.offsetWidth;
       hint.classList.add('warn');
-      setMascotTemporarily('speaking', '冰箱里有什么呀？先选几样食材');
+      setMascotTemporarily('speaking', '你现在有什么食材？先选几样或直接输入');
       $('ingredients').focus();
       syncCookOutputVisibility();
       return;
