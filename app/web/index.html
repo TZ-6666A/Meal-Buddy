@@ -2554,7 +2554,7 @@
       const ings = (r.ingredients || []).map(i => `${escapeHtml(i.name)} ${escapeHtml(i.amount)}`).join('、');
       const steps = (r.steps || []).map(s => `<li>${escapeHtml(s)}</li>`).join('');
       const credit = r.image_photographer
-        ? `<a href="${escapeHtml(r.image_credit_url || 'https://www.pexels.com/') }" target="_blank" rel="noopener noreferrer">Photo by ${escapeHtml(r.image_photographer)} on Pexels</a>` : '';
+        ? `<a href="${escapeHtml(r.image_credit_url || 'https://pixabay.com/') }" target="_blank" rel="noopener noreferrer">Photo by ${escapeHtml(r.image_photographer)} on Pixabay</a>` : '';
       return `<article class="recipe">
         <div class="recipe-layout">
           <div class="recipe-photo-wrap" hidden>
@@ -2600,8 +2600,10 @@
           if (info.found) {
             image.src = info.image_url;
             const credit = card.querySelector('.recipe-photo-credit');
-            credit.innerHTML = `Photo by <a href="${escapeHtml(info.photographer_url || 'https://www.pexels.com/')}" target="_blank" rel="noopener noreferrer">${escapeHtml(info.photographer)}</a> on <a href="${escapeHtml(info.pexels_url || 'https://www.pexels.com/')}" target="_blank" rel="noopener noreferrer">Pexels</a>`;
+            credit.innerHTML = `Photo by <a href="${escapeHtml(info.photographer_url || 'https://pixabay.com/')}" target="_blank" rel="noopener noreferrer">${escapeHtml(info.photographer)}</a> on <a href="${escapeHtml(info.pixabay_url || info.source_url || 'https://pixabay.com/')}" target="_blank" rel="noopener noreferrer">Pixabay</a>`;
             credit.hidden = false;
+          } else if (recipe.image_fallback_url) {
+            image.src = recipe.image_fallback_url;
           }
         })
         .catch(() => {});
