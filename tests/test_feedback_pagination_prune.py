@@ -11,6 +11,14 @@ def _drawn_session(client) -> tuple[int, str]:
         return record.id, record.drawn[-1]
 
 
+def test_decision_result_exposes_selected_dish(client):
+    session = client.post("/api/v1/decisions?mode=takeout").json()
+    result = client.post(f"/api/v1/decisions/{session['session_id']}/again").json()
+
+    assert result["selected_dish"]
+    assert result["selected_dish"] in result["result"]
+
+
 def test_feedback_rejects_unknown_dish_and_updates_duplicate(client):
     session_id, dish_name = _drawn_session(client)
     invalid = client.post(

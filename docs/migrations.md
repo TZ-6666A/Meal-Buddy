@@ -15,6 +15,9 @@
 - 邮箱绑定迁移：`migrations/versions/0003_email_binding.py`
   - `users` 加可空 `email` 列（小写存储）和唯一索引 `uq_users_email`；
   - 新增 `email_verifications` 表存验证码哈希（发码限频、防爆破）。
+- 菜品图片目录迁移：`migrations/versions/0004_recipe_photos.py`
+  - 新增 `recipe_photos` 表，以规范菜名唯一关联 OSS/COS 图片 URL、替代文本和来源署名；
+  - 图片文件放对象存储，数据库不保存图片二进制；图片目录需在上传并确认授权后录入。
 - 迁移里的 DDL 使用 `IF NOT EXISTS`，因此历史上由 `create_all` + `sql/*.sql` 建出来的库可以直接升级，不会因为表已存在而失败。
 - 应用启动时**不再**自动建表。表缺失会直接报错并提示执行 `alembic upgrade head`。
 

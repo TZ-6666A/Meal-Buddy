@@ -122,6 +122,22 @@ class ChatMessage(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
+class RecipePhoto(Base):
+    """菜名到已授权对象存储图片的目录。"""
+
+    __tablename__ = "recipe_photos"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    recipe_name: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    image_url: Mapped[str] = mapped_column(Text)
+    image_alt: Mapped[str] = mapped_column(String(200), default="")
+    photographer: Mapped[str] = mapped_column(String(100), default="")
+    credit_name: Mapped[str] = mapped_column(String(100), default="")
+    credit_url: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class RecommendationFeedback(Base):
     """归属通过 session_id 间接决定（会话属于某个用户）。"""
 

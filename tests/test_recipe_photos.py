@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.models import RecipePhoto
 from app.services import recipe_photos
 
 
@@ -65,13 +66,57 @@ def test_search_rejects_untrusted_image_host(monkeypatch):
     assert asyncio.run(recipe_photos._find_photo("番茄炒蛋")) is None
 
 
-def test_photo_endpoint_returns_named_placeholder_when_no_api_key(client, monkeypatch):
-    monkeypatch.setattr(recipe_photos, "get_settings", lambda: SimpleNamespace(pexels_api_key=""))
+def test_photo_endpoint_returns_named_placeholder_when_catalog_misses(client):
     response = client.get("/api/v1/recipe-photo", params={"name": "无油豆腐蒸蛋"})
 
     assert response.status_code == 200
     assert response.headers["content-type"] == "image/svg+xml"
     assert "无油豆腐蒸蛋".encode() in response.content
+
+
+def test_photo_info_reads_oss_url_and_credit_from_catalog(client, monkeypatch):
+    with client.testing_session() as db:
+        db.add(RecipePhoto(
+            recipe_name="番茄炒蛋",
+            image_url="https://fandazi.oss-cn-shanghai.aliyuncs.com/dishes/tomato-egg.webp",
+            image_alt="番茄炒蛋成品",
+            photographer="小饭",
+            credit_name="饭搭子菜图",
+            credit_url="https://fandazi.oss-cn-shanghai.aliyuncs.com/credits/terms",
+        ))
+        db.commit()
+
+    response = client.get("/api/v1/recipe-photo-info", params={"name": "番茄炒蛋"})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "found": True,
+        "image_url": "https://fandazi.oss-cn-shanghai.aliyuncs.com/dishes/tomato-egg.webp",
+        "image_alt": "番茄炒蛋成品",
+        "photographer": "小饭",
+        "photographer_url": "https://fandazi.oss-cn-shanghai.aliyuncs.com/credits/terms",
+        "credit_name": "饭搭子菜图",
+        "credit_url": "https://fandazi.oss-cn-shanghai.aliyuncs.com/credits/terms",
+    }
+
+
+def test_photo_info_returns_found_false_when_catalog_misses(client):
+    response = client.get("/api/v1/recipe-photo-info", params={"name": "豆腐蒸蛋"})
+
+    assert response.status_code == 200
+    assert response.json()["found"] is False
+    assert response.json()["image_url"] == ""
+
+
+def test_photo_info_rejects_non_https_catalog_url(client):
+    with client.testing_session() as db:
+        db.add(RecipePhoto(recipe_name="番茄炒蛋", image_url="http://example.test/dish.jpg"))
+        db.commit()
+
+    response = client.get("/api/v1/recipe-photo-info", params={"name": "番茄炒蛋"})
+
+    assert response.status_code == 200
+    assert response.json()["found"] is False
 
 
 def test_image_cache_respects_byte_budget(monkeypatch):

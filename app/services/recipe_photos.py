@@ -8,7 +8,11 @@ from urllib.parse import urlencode, urlsplit
 
 import httpx
 
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
 from app.config import get_settings
+from app.models import RecipePhoto
 
 PEXELS_API = "https://api.pexels.com/v1/search"
 ALLOWED_IMAGE_HOST = "images.pexels.com"
@@ -212,14 +216,41 @@ def decorate_recipes(recipes: list) -> None:
         recipe.image_credit_url = ""
 
 
-async def photo_info(name: str) -> dict:
-    photo = await _find_photo(name)
+def _safe_catalog_url(value: str) -> bool:
+    parsed = urlsplit(value)
+    return (
+        parsed.scheme == "https"
+        and bool(parsed.hostname)
+        and parsed.port in (None, 443)
+        and parsed.username is None
+        and parsed.password is None
+        and not parsed.fragment
+    )
+
+
+def photo_info(db: Session, name: str) -> dict:
+    normalized_name = _normalized_query(name)
+    photo = db.scalar(
+        select(RecipePhoto).where(RecipePhoto.recipe_name == normalized_name)
+    )
+    if photo is None or not _safe_catalog_url(photo.image_url):
+        return {
+            "found": False,
+            "image_url": "",
+            "image_alt": "",
+            "photographer": "",
+            "photographer_url": "",
+            "credit_name": "",
+            "credit_url": "",
+        }
     return {
-        "found": photo is not None,
-        "image_url": f"/api/v1/recipe-photo?{urlencode({'name': name})}",
-        "photographer": photo["photographer"] if photo else "",
-        "photographer_url": photo["photographer_url"] if photo else "",
-        "pexels_url": photo["pexels_url"] if photo else "",
+        "found": True,
+        "image_url": photo.image_url,
+        "image_alt": photo.image_alt or f"{photo.recipe_name}成品图片",
+        "photographer": photo.photographer,
+        "photographer_url": photo.credit_url if _safe_catalog_url(photo.credit_url) else "",
+        "credit_name": photo.credit_name,
+        "credit_url": photo.credit_url if _safe_catalog_url(photo.credit_url) else "",
     }
 
 
