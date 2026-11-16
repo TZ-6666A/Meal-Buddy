@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from urllib.parse import quote
 
 import pytest
 
@@ -12,39 +13,45 @@ from app.services import recipe_photos
 def clear_photo_state():
     recipe_photos._search_cache.clear()
     recipe_photos._image_cache.clear()
+    recipe_photos._image_cache_bytes = 0
     yield
     recipe_photos._search_cache.clear()
     recipe_photos._image_cache.clear()
+    recipe_photos._image_cache_bytes = 0
 
 
-def test_search_accepts_only_pexels_image_host(monkeypatch):
+def test_search_accepts_pixabay_image_and_credit(monkeypatch):
     class FakeResponse:
         def raise_for_status(self):
             return None
 
         def json(self):
             return {
-                "photos": [{
-                    "src": {"large": "https://images.pexels.com/photos/1/photo.jpeg"},
-                    "photographer": "Chef",
-                    "photographer_url": "https://www.pexels.com/@chef/",
-                    "url": "https://www.pexels.com/photo/1/",
+                "hits": [{
+                    "largeImageURL": "https://pixabay.com/get/tomato.jpg",
+                    "user": "Chef",
+                    "user_id": 12345,
+                    "pageURL": "https://pixabay.com/photos/tomato-food-1/",
+                    "tags": "tomato egg food stir fry",
                 }]
             }
 
     class FakeClient:
         async def get(self, *args, **kwargs):
-            assert kwargs["headers"]["Authorization"] == "test-key"
+            assert kwargs["params"]["key"] == "test-key"
+            assert kwargs["params"]["image_type"] == "photo"
             return FakeResponse()
 
     monkeypatch.setattr(recipe_photos, "_client_for_requests", lambda: FakeClient())
-    monkeypatch.setattr(recipe_photos, "get_settings", lambda: SimpleNamespace(pexels_api_key="test-key"))
+    monkeypatch.setattr(recipe_photos, "get_settings", lambda: SimpleNamespace(pixabay_api_key="test-key"))
 
     import asyncio
     result = asyncio.run(recipe_photos._find_photo("番茄炒蛋"))
 
-    assert result["url"] == "https://images.pexels.com/photos/1/photo.jpeg"
+    assert result["url"] == "https://pixabay.com/get/tomato.jpg"
     assert result["photographer"] == "Chef"
+    assert result["photographer_url"] == "https://pixabay.com/users/Chef-12345/"
+    assert result["pixabay_url"] == "https://pixabay.com/photos/tomato-food-1/"
 
 
 def test_search_rejects_untrusted_image_host(monkeypatch):
@@ -53,20 +60,24 @@ def test_search_rejects_untrusted_image_host(monkeypatch):
             return None
 
         def json(self):
-            return {"photos": [{"src": {"large": "https://attacker.invalid/image.jpg"}}]}
+            return {"hits": [{
+                "largeImageURL": "https://attacker.invalid/image.jpg",
+                "tags": "tomato egg food",
+            }]}
 
     class FakeClient:
         async def get(self, *args, **kwargs):
             return FakeResponse()
 
     monkeypatch.setattr(recipe_photos, "_client_for_requests", lambda: FakeClient())
-    monkeypatch.setattr(recipe_photos, "get_settings", lambda: SimpleNamespace(pexels_api_key="test-key"))
+    monkeypatch.setattr(recipe_photos, "get_settings", lambda: SimpleNamespace(pixabay_api_key="test-key"))
 
     import asyncio
     assert asyncio.run(recipe_photos._find_photo("番茄炒蛋")) is None
 
 
-def test_photo_endpoint_returns_named_placeholder_when_catalog_misses(client):
+def test_photo_endpoint_returns_named_placeholder_when_catalog_misses(client, monkeypatch):
+    monkeypatch.setattr(recipe_photos, "get_settings", lambda: SimpleNamespace(pixabay_api_key=""))
     response = client.get("/api/v1/recipe-photo", params={"name": "无油豆腐蒸蛋"})
 
     assert response.status_code == 200
@@ -100,7 +111,8 @@ def test_photo_info_reads_oss_url_and_credit_from_catalog(client, monkeypatch):
     }
 
 
-def test_photo_info_returns_found_false_when_catalog_misses(client):
+def test_photo_info_returns_found_false_when_catalog_misses(client, monkeypatch):
+    monkeypatch.setattr(recipe_photos, "get_settings", lambda: SimpleNamespace(pixabay_api_key=""))
     response = client.get("/api/v1/recipe-photo-info", params={"name": "豆腐蒸蛋"})
 
     assert response.status_code == 200
@@ -108,7 +120,52 @@ def test_photo_info_returns_found_false_when_catalog_misses(client):
     assert response.json()["image_url"] == ""
 
 
-def test_photo_info_rejects_non_https_catalog_url(client):
+def test_photo_info_prefers_catalog_over_pixabay(client, monkeypatch):
+    with client.testing_session() as db:
+        db.add(RecipePhoto(
+            recipe_name="番茄炒蛋",
+            image_url="https://fandazi.oss-cn-shanghai.aliyuncs.com/dishes/tomato-egg.webp",
+            image_alt="目录图片",
+            credit_name="目录署名",
+            credit_url="https://fandazi.oss-cn-shanghai.aliyuncs.com/credits/terms",
+        ))
+        db.commit()
+
+    async def should_not_search(name):
+        raise AssertionError("catalog hits must not call Pixabay")
+
+    monkeypatch.setattr(recipe_photos, "_find_photo", should_not_search)
+    response = client.get("/api/v1/recipe-photo-info", params={"name": "番茄炒蛋"})
+
+    assert response.status_code == 200
+    assert response.json()["image_url"].endswith("tomato-egg.webp")
+    assert response.json()["credit_name"] == "目录署名"
+
+
+def test_photo_info_falls_back_to_pixabay_when_catalog_misses(client, monkeypatch):
+    monkeypatch.setattr(recipe_photos, "_find_photo", lambda name: _async_value({
+        "url": "https://pixabay.com/get/tofu.jpg",
+        "photographer": "Chef",
+        "photographer_url": "https://pixabay.com/users/Chef-1/",
+        "pixabay_url": "https://pixabay.com/photos/tofu-food-1/",
+    }))
+
+    response = client.get("/api/v1/recipe-photo-info", params={"name": "豆腐蒸蛋"})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "found": True,
+        "image_url": f"/api/v1/recipe-photo?name={quote('豆腐蒸蛋')}",
+        "image_alt": "豆腐蒸蛋成品图片",
+        "photographer": "Chef",
+        "photographer_url": "https://pixabay.com/users/Chef-1/",
+        "credit_name": "Photo by Chef on Pixabay",
+        "credit_url": "https://pixabay.com/photos/tofu-food-1/",
+    }
+
+
+def test_photo_info_rejects_non_https_catalog_url(client, monkeypatch):
+    monkeypatch.setattr(recipe_photos, "get_settings", lambda: SimpleNamespace(pixabay_api_key=""))
     with client.testing_session() as db:
         db.add(RecipePhoto(recipe_name="番茄炒蛋", image_url="http://example.test/dish.jpg"))
         db.commit()
@@ -124,8 +181,8 @@ def test_image_cache_respects_byte_budget(monkeypatch):
     monkeypatch.setattr(recipe_photos, "MAX_IMAGE_CACHE_BYTES", 5)
     monkeypatch.setattr(recipe_photos, "MAX_CACHE_ENTRIES", 2)
 
-    recipe_photos._cache_image("https://images.pexels.com/photos/1/a.jpg", b"1234", "image/jpeg")
-    recipe_photos._cache_image("https://images.pexels.com/photos/2/b.jpg", b"6789", "image/jpeg")
+    recipe_photos._cache_image("https://pixabay.com/get/1.jpg", b"1234", "image/jpeg")
+    recipe_photos._cache_image("https://pixabay.com/get/2.jpg", b"6789", "image/jpeg")
 
     assert recipe_photos._image_cache_bytes <= 5
     assert len(recipe_photos._image_cache) == 1
@@ -144,7 +201,7 @@ def test_photo_endpoint_serves_only_local_fallback_when_requested(client, monkey
 
 
 def test_fetch_photo_rejects_non_image_content_type(monkeypatch):
-    photo = {"url": "https://images.pexels.com/photos/1/photo.jpeg"}
+    photo = {"url": "https://pixabay.com/get/photo.jpeg"}
     monkeypatch.setattr(recipe_photos, "_find_photo", lambda name: _async_value(photo))
 
     class FakeStream:
@@ -178,7 +235,7 @@ async def _async_value(value):
 
 
 def test_stream_recommendation_includes_photo_fields(client, monkeypatch):
-    monkeypatch.setattr(recipe_photos, "get_settings", lambda: SimpleNamespace(pexels_api_key=""))
+    monkeypatch.setattr(recipe_photos, "get_settings", lambda: SimpleNamespace(pixabay_api_key=""))
     response = client.post("/api/v1/recommendations/stream", json={"available_minutes": 30})
 
     assert response.status_code == 200
@@ -188,7 +245,7 @@ def test_stream_recommendation_includes_photo_fields(client, monkeypatch):
 
 
 def test_recommendation_has_same_origin_photo_fields(client, fake_settings, monkeypatch):
-    monkeypatch.setattr(recipe_photos, "get_settings", lambda: SimpleNamespace(pexels_api_key=""))
+    monkeypatch.setattr(recipe_photos, "get_settings", lambda: SimpleNamespace(pixabay_api_key=""))
     response = client.post("/api/v1/recommendations", json={"available_minutes": 30})
 
     assert response.status_code == 200

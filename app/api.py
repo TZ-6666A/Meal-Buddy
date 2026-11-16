@@ -247,11 +247,11 @@ def health(db: Session = Depends(get_db)) -> dict[str, str]:
 
 
 @public_router.get("/recipe-photo-info", dependencies=[Depends(limit_recipe_photos)])
-def recipe_photo_info(
+async def recipe_photo_info(
     name: str = Query(min_length=1, max_length=80),
     db: Session = Depends(get_db),
 ) -> dict:
-    return recipe_photos.photo_info(db, name)
+    return await recipe_photos.photo_info(db, name)
 
 
 @public_router.get("/recipe-photo", dependencies=[Depends(limit_recipe_photos)])
