@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Awaitable, Callable
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.orm import Session
 
@@ -258,8 +258,24 @@ async def recipe_photo_info(
 async def recipe_photo(
     name: str = Query(min_length=1, max_length=80),
     fallback: bool = Query(default=False),
+    preview: bool = Query(default=False),
+    strict: bool = Query(default=False),
+    db: Session = Depends(get_db),
 ) -> Response:
-    content, content_type, found = await recipe_photos.fetch_photo(name, fallback_only=fallback)
+    # 数据库目录优先：直接跳转到 OSS，避免为已收录的菜再查 Pixabay。
+    if not fallback:
+        catalog = recipe_photos.catalog_url(db, name)
+        if catalog:
+            return RedirectResponse(
+                catalog,
+                status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+                headers={"Cache-Control": "public, max-age=86400, stale-while-revalidate=604800"},
+            )
+    content, content_type, found = await recipe_photos.fetch_photo(
+        name, fallback_only=fallback, preview=preview
+    )
+    if strict and not found and not fallback:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="没有匹配的菜品图片")
     return Response(
         content=content,
         media_type=content_type,
