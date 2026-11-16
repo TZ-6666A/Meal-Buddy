@@ -230,6 +230,78 @@ def test_fetch_photo_rejects_non_image_content_type(monkeypatch):
     assert "豆腐蒸蛋".encode() in content
 
 
+def test_dish_mapping_prefers_specific_longest_name():
+    assert recipe_photos._query_variants("鳗鱼饭") == ["eel rice", "unadon", "unagi don"]
+    assert recipe_photos._query_variants("红烧肉盖饭") == [
+        "pork belly rice", "braised pork rice", "roasted pork rice",
+    ]
+    assert recipe_photos._query_variants("红烧肉") == ["braised pork belly", "pork belly"]
+    # 本地菜不能再退化成“米饭”去搜水稻田。
+    assert recipe_photos._query_variants("商州烩菜配米饭") == [
+        "vegetable stew", "stewed vegetables", "braised vegetables",
+    ]
+    assert recipe_photos._query_variants("商洛洋芋糍粑") == ["mashed potato", "potato cake"]
+    # Pixabay 标签常是复数，vegetables 应能匹配 vegetable。
+    assert recipe_photos._matches_query("vegetable stew", {"tags": "vegetables, stew, food"})
+    # 只有食材、没有做法的泛词不再搜索，避免 fish 搜到鱼市场。
+    assert recipe_photos._query_variants("鱼") == []
+    assert recipe_photos._query_variants("米饭") == []
+
+
+def test_search_rejects_market_and_black_and_white(monkeypatch):
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"hits": [{
+                "largeImageURL": "https://pixabay.com/get/market.jpg",
+                "tags": "grilled fish market black and white",
+            }]}
+
+    class FakeClient:
+        async def get(self, *args, **kwargs):
+            return FakeResponse()
+
+    monkeypatch.setattr(recipe_photos, "_client_for_requests", lambda: FakeClient())
+    monkeypatch.setattr(recipe_photos, "get_settings", lambda: SimpleNamespace(pixabay_api_key="test-key"))
+
+    import asyncio
+    assert asyncio.run(recipe_photos._find_photo("烤鱼")) is None
+
+
+def test_search_accepts_cooked_food(monkeypatch):
+    seen = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"hits": [{
+                "largeImageURL": "https://pixabay.com/get/fish.jpg",
+                "user": "Chef",
+                "user_id": 7,
+                "pageURL": "https://pixabay.com/photos/fish-dish-7/",
+                "tags": "grilled fish food plate",
+            }]}
+
+    class FakeClient:
+        async def get(self, *args, **kwargs):
+            seen.update(kwargs["params"])
+            return FakeResponse()
+
+    monkeypatch.setattr(recipe_photos, "_client_for_requests", lambda: FakeClient())
+    monkeypatch.setattr(recipe_photos, "get_settings", lambda: SimpleNamespace(pixabay_api_key="test-key"))
+
+    import asyncio
+    result = asyncio.run(recipe_photos._find_photo("烤鱼"))
+
+    assert result["url"] == "https://pixabay.com/get/fish.jpg"
+    assert seen["q"] == "grilled fish"
+    assert seen["category"] == "food"
+
+
 async def _async_value(value):
     return value
 

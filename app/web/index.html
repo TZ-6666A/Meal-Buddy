@@ -1462,6 +1462,33 @@
   const dateKey = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   const escapeHtml = v => String(v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
+  // 兜底检测黑白图：后端已经用 Pixabay 颜色筛选和标签过滤，
+  // 这里再检查一次最终图片，避免低饱和/灰度图片出现在菜谱卡里。
+  function isLikelyGrayscale(image) {
+    try {
+      const size = 24;
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (!ctx) return false;
+      ctx.drawImage(image, 0, 0, size, size);
+      const data = ctx.getImageData(0, 0, size, size).data;
+      let colored = 0, visible = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        if (data[i + 3] < 32) continue;
+        visible++;
+        const max = Math.max(data[i], data[i + 1], data[i + 2]);
+        const min = Math.min(data[i], data[i + 1], data[i + 2]);
+        if (max - min > 20) colored++;
+      }
+      return visible > 0 && colored / visible < 0.04;
+    } catch (e) {
+      // 跨域图片可能读不了像素，交给后端筛选结果。
+      return false;
+    }
+  }
+
   async function loadDishPhoto(name, wrap, image, credit, onLoaded = () => {}, onFailed = () => {}) {
     if (!name || !wrap || !image || !credit) return;
     image.onerror = () => {
@@ -1470,6 +1497,12 @@
     };
     image.onload = () => {
       if (!wrap.isConnected) return;
+      if (isLikelyGrayscale(image)) {
+        wrap.hidden = true;
+        credit.hidden = true;
+        onFailed();
+        return;
+      }
       wrap.hidden = false;
       onLoaded();
     };
