@@ -229,6 +229,7 @@ class DecisionState(BaseModel):
     can_draw: bool = False
     draws: int = 0
     result: str = ""
+    selected_dish: str = ""
     alternatives: list[str] = Field(default_factory=list)
     reasons: list[str] = Field(default_factory=list)
     finished: bool = False

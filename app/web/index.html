@@ -569,6 +569,14 @@
   .result-tip{margin-top:var(--s2);padding:var(--s3);border-radius:10px;background:var(--sunken);
     color:var(--muted);font-size:var(--fs-meta);line-height:1.6}
   .result-note{font-size:var(--fs-micro);color:var(--brand);opacity:.85;margin-top:6px}
+  .dish-photo[hidden]{display:none}
+  .dish-photo{position:relative;overflow:hidden;aspect-ratio:16/10;border-radius:10px;background:#edf2e9}
+  .dish-photo img{display:block;width:100%;height:100%;object-fit:cover}
+  .dish-photo-credit{position:absolute;right:0;bottom:0;max-width:100%;padding:4px 7px;overflow:hidden;
+    background:#17231db8;color:#fff;font-size:10px;text-overflow:ellipsis;white-space:nowrap}
+  .dish-photo-credit a{color:inherit;text-decoration:underline;text-underline-offset:2px}
+  .decision-photo{margin-top:var(--s3);max-height:280px}
+  .lesson-photo{margin:var(--s3) 0;max-height:360px}
 
   /* ---------- 桌面端布局 ---------- */
 
@@ -1454,6 +1462,33 @@
   const dateKey = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   const escapeHtml = v => String(v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
+  async function loadDishPhoto(name, wrap, image, credit, onLoaded = () => {}, onFailed = () => {}) {
+    if (!name || !wrap || !image || !credit) return;
+    image.onerror = () => {
+      wrap.hidden = true;
+      onFailed();
+    };
+    image.onload = () => {
+      if (!wrap.isConnected) return;
+      wrap.hidden = false;
+      onLoaded();
+    };
+    try {
+      const response = await fetch(`/api/v1/recipe-photo-info?${new URLSearchParams({ name })}`);
+      if (!response.ok) return;
+      const info = await response.json();
+      if (!info.found || !wrap.isConnected) return;
+      image.alt = info.image_alt || `${name}成品图片`;
+      image.loading = 'eager';
+      const creditName = info.credit_name || info.photographer || '';
+      credit.innerHTML = creditName
+        ? `<a href="${escapeHtml(info.credit_url || info.photographer_url || '#')}" target="_blank" rel="noopener noreferrer">${escapeHtml(creditName)}</a>`
+        : '';
+      credit.hidden = false;
+      image.src = info.image_url;
+    } catch (e) {}
+  }
+
   // ---------- 登录态 ----------
   // 会话由后端 HttpOnly Cookie 承载，前端不保存任何凭据；
   // 请求收到 401 时弹登录框，登录成功后自动重试原请求。
@@ -1466,7 +1501,9 @@
 
   function authConfig() {
     if (!authCfgPromise) {
-      authCfgPromise = fetch(`${api}/auth/config`)
+      // 配置接口只决定验证码登录是否可用；慢或失败时退回密码登录，
+      // 不能让它把整个登录框卡住。
+      authCfgPromise = fetch(`${api}/auth/config`, { signal: AbortSignal.timeout(4000) })
         .then(res => res.ok ? res.json() : null)
         .then(data => {
           if (data) authCfg = { email_enabled: !!data.email_enabled };
@@ -1510,6 +1547,7 @@
   }
 
   function ensureLoggedIn() {
+    if (currentUser) return Promise.resolve();
     if (!authPromise) {
       authPromise = (async () => {
         await authConfig();
@@ -1525,11 +1563,14 @@
     return authPromise;
   }
 
-  async function apiFetch(url, options = {}, retried = false) {
-    const res = await fetch(url, { credentials: 'same-origin', ...options });
+  async function apiFetch(url, options = {}, retried = false, timeoutMs = 0) {
+    const opts = { credentials: 'same-origin', ...options };
+    // 每次尝试单独计时。登录后重试时不能复用已经过期的 AbortSignal。
+    if (timeoutMs > 0 && !opts.signal) opts.signal = AbortSignal.timeout(timeoutMs);
+    const res = await fetch(url, opts);
     if (res.status === 401 && !retried) {
       await ensureLoggedIn();
-      return apiFetch(url, options, true);
+      return apiFetch(url, options, true, timeoutMs);
     }
     return res;
   }
@@ -1951,7 +1992,7 @@
         body: JSON.stringify({ confirm: 'DELETE' })
       });
       if (!res.ok) throw new Error();
-      await Promise.all([loadPrefs(), loadWeek()]);
+      await Promise.all([loadPrefs(), loadWeek(true)]);
       flashToast('已清空所有数据');
     } catch { flashToast('清空失败，稍后再试'); }
   });
@@ -1994,7 +2035,13 @@
   async function startDecision(mode) {
     session = null; $('decide-result').innerHTML = '';
     try {
-      const res = await apiFetch(`${api}/decisions?mode=${mode}&condition=${encodeURIComponent(cond)}`, { method: 'POST' });
+      const res = await apiFetch(
+        `${api}/decisions?mode=${mode}&condition=${encodeURIComponent(cond)}`,
+        { method: 'POST' },
+        false,
+        10000
+      );
+      if (!res.ok) throw new Error('start failed');
       session = await res.json();
       if (session.condition && session.condition !== cond) {
         cond = session.condition;
@@ -2207,7 +2254,10 @@
         : '';
       result.innerHTML =
         `<div class="result-card"><div class="result-top"><b>小饭推荐</b><span class="turn">${stepText}</span></div>` +
-        `<p class="result-text">${escapeHtml(session.result)}</p>${reasonWrap}</div>` + altBlock + takeoutJump + feedback + watchChoice + restart + tip;
+        `<p class="result-text">${escapeHtml(session.result)}</p>` +
+        `<div class="dish-photo decision-photo" hidden><img alt="" loading="lazy"><small class="dish-photo-credit" hidden></small></div>${reasonWrap}</div>` + altBlock + takeoutJump + feedback + watchChoice + restart + tip;
+      loadDishPhoto(session.selected_dish, result.querySelector('.decision-photo'),
+        result.querySelector('.decision-photo img'), result.querySelector('.decision-photo .dish-photo-credit'));
       $('feedback-accept').onclick = async () => {
         if (!await submitFeedback('accept')) return;
         $('watch-after-meal').hidden = false;
@@ -2553,13 +2603,11 @@
       const tags = (r.tags || []).map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('');
       const ings = (r.ingredients || []).map(i => `${escapeHtml(i.name)} ${escapeHtml(i.amount)}`).join('、');
       const steps = (r.steps || []).map(s => `<li>${escapeHtml(s)}</li>`).join('');
-      const credit = r.image_photographer
-        ? `<a href="${escapeHtml(r.image_credit_url || 'https://pixabay.com/') }" target="_blank" rel="noopener noreferrer">Photo by ${escapeHtml(r.image_photographer)} on Pixabay</a>` : '';
       return `<article class="recipe">
         <div class="recipe-layout">
           <div class="recipe-photo-wrap" hidden>
             <img class="recipe-photo" alt="${escapeHtml(r.image_alt || `${r.name}成品图片`)}" loading="lazy" />
-            <small class="recipe-photo-credit" hidden>${credit}</small>
+            <small class="recipe-photo-credit" hidden></small>
           </div>
           <div class="recipe-copy">
             <div class="recipe-top"><h3>${escapeHtml(r.name)}</h3><span class="mins">${escapeHtml(r.prep_minutes)} 分钟</span></div>
@@ -2584,29 +2632,11 @@
       const layout = card.querySelector('.recipe-layout');
       const photoWrap = card.querySelector('.recipe-photo-wrap');
       const image = card.querySelector('.recipe-photo');
-      image.onload = () => {
-        if (!card.isConnected) return;
-        photoWrap.hidden = false;
+      loadDishPhoto(recipe.name, photoWrap, image, card.querySelector('.recipe-photo-credit'), () => {
         layout.classList.add('has-photo');
-      };
-      image.onerror = () => {
-        photoWrap.hidden = true;
+      }, () => {
         layout.classList.remove('has-photo');
-      };
-      fetch(`/api/v1/recipe-photo-info?${new URLSearchParams({ name: recipe.name })}`)
-        .then(response => response.ok ? response.json() : null)
-        .then(info => {
-          if (!info || !card.isConnected) return;
-          if (info.found) {
-            image.src = info.image_url;
-            const credit = card.querySelector('.recipe-photo-credit');
-            credit.innerHTML = `Photo by <a href="${escapeHtml(info.photographer_url || 'https://pixabay.com/')}" target="_blank" rel="noopener noreferrer">${escapeHtml(info.photographer)}</a> on <a href="${escapeHtml(info.pixabay_url || info.source_url || 'https://pixabay.com/')}" target="_blank" rel="noopener noreferrer">Pixabay</a>`;
-            credit.hidden = false;
-          } else if (recipe.image_fallback_url) {
-            image.src = recipe.image_fallback_url;
-          }
-        })
-        .catch(() => {});
+      });
     });
     const nextButton = $('next-recipe-batch');
     if (nextButton) nextButton.onclick = () => {
@@ -3174,7 +3204,7 @@
     $('meal-description').addEventListener('keydown', e => { if (e.key === 'Enter') saveMeal(); });
     $('meal-entry').querySelectorAll('.del').forEach(b => b.onclick = async () => {
       await apiFetch(`${api}/meals/${b.dataset.id}`, { method: 'DELETE' });
-      await loadWeek();
+      await loadWeek(true);
     });
   }
 
@@ -3312,11 +3342,38 @@
     }
   }
 
-  async function loadWeek() {
+  let weekFetch = null;
+  function fetchWeek(force = false) {
     const start = weekStart(), end = new Date(start);
     end.setDate(end.getDate() + 7);
-    const res = await apiFetch(`${api}/meals?start=${encodeURIComponent(start.toISOString())}&end=${encodeURIComponent(end.toISOString())}`);
-    weekMeals = await res.json();
+    const key = `${start.toISOString()}|${end.toISOString()}`;
+    if (!force && weekFetch && weekFetch.key === key && Date.now() - weekFetch.at < 5000) {
+      return weekFetch.promise;
+    }
+    const promise = apiFetch(
+      `${api}/meals?start=${encodeURIComponent(start.toISOString())}&end=${encodeURIComponent(end.toISOString())}`,
+      {},
+      false,
+      10000
+    ).then(res => res.ok ? res.json() : []);
+    weekFetch = { key, at: Date.now(), promise };
+    promise.catch(() => {
+      if (weekFetch && weekFetch.promise === promise) weekFetch = null;
+    });
+    return promise;
+  }
+
+  async function loadWeek(force = false) {
+    if (force) weekFetch = null;
+    const start = weekStart(), end = new Date(start);
+    end.setDate(end.getDate() + 7);
+    let list = [];
+    try {
+      list = await fetchWeek();
+    } catch (e) {
+      return;
+    }
+    weekMeals = list;
     noteMealRange(weekMeals, start, end);
     renderWeek();
     renderWeekMini(weekMeals);
@@ -3332,7 +3389,7 @@
       body: JSON.stringify({ description, meal_type: selectedType, eaten_at: eatenAt.toISOString() })
     });
     if (!res.ok) { setStatus('保存失败', true); return; }
-    await loadWeek();
+    await loadWeek(true);
   }
 
   async function skipMeal() {
@@ -3352,7 +3409,7 @@
       body: JSON.stringify({ description: '没吃', meal_type: selectedType, eaten_at: eatenAt.toISOString() })
     });
     if (!res.ok) { setStatus('保存失败', true); return; }
-    await loadWeek();
+    await loadWeek(true);
   }
 
   /* ---------- 模式切换 ---------- */
@@ -3435,7 +3492,10 @@
     }).join('');
     $('learn-result').innerHTML = `${warnings}
       <div class="label"><h2>${escapeHtml(data.dish || '')}</h2><span>${escapeHtml(data.servings || '2人份')}</span></div>
+      <div class="dish-photo lesson-photo" hidden><img alt="" loading="lazy"><small class="dish-photo-credit" hidden></small></div>
       ${ingredients ? `<div class="learn-ings">${ingredients}</div>` : ''}${steps}`;
+    loadDishPhoto(data.dish, $('learn-result').querySelector('.lesson-photo'),
+      $('learn-result').querySelector('.lesson-photo img'), $('learn-result').querySelector('.lesson-photo .dish-photo-credit'));
   }
 
   /* ---------- 特殊模式 ---------- */
@@ -3473,11 +3533,8 @@
     end.setDate(end.getDate() + 7);
     let list = [];
     try {
-      const res = await apiFetch(`${api}/meals?start=${encodeURIComponent(start.toISOString())}&end=${encodeURIComponent(end.toISOString())}`);
-      if (res.ok) {
-        list = await res.json();
-        noteMealRange(list, start, end);
-      }
+      list = await fetchWeek();
+      noteMealRange(list, start, end);
     } catch (e) { /* 静默 */ }
     renderWeekMini(list);
   }
@@ -3511,21 +3568,22 @@
     savedTab.click();
   }
 
-  // 启动门卫：先确认登录态，没登录就弹登录框，登录成功后才初始化页面。
+  // 页面外壳先初始化，登录态在后台确认；慢接口不能阻塞标签和交互。
+  boot();
   (async () => {
     try {
       const res = await fetch(`${api}/auth/me`, { credentials: 'same-origin' });
       if (res.ok) {
         currentUser = await res.json();
-      } else {
+        applyUserUI();
+      } else if (res.status === 401 && !currentUser) {
+        // 请求发出后用户可能已经通过其他入口登录，避免旧响应再弹一次登录框。
         await ensureLoggedIn();
-        if (!currentUser) return;
+        if (currentUser) applyUserUI();
       }
     } catch (e) {
-      return;
+      // 网络慢/失败时页面仍可使用；受保护请求遇到 401 会自行触发登录。
     }
-    applyUserUI();
-    boot();
   })();
 </script>
 </body>

@@ -247,8 +247,11 @@ def health(db: Session = Depends(get_db)) -> dict[str, str]:
 
 
 @public_router.get("/recipe-photo-info", dependencies=[Depends(limit_recipe_photos)])
-async def recipe_photo_info(name: str = Query(min_length=1, max_length=80)) -> dict:
-    return await recipe_photos.photo_info(name)
+async def recipe_photo_info(
+    name: str = Query(min_length=1, max_length=80),
+    db: Session = Depends(get_db),
+) -> dict:
+    return await recipe_photos.photo_info(db, name)
 
 
 @public_router.get("/recipe-photo", dependencies=[Depends(limit_recipe_photos)])
@@ -872,6 +875,7 @@ def _state(session: DecisionSession, db: Session, user_id: int, auto_draw: bool 
             result=decision.result_line(
                 session.mode, session.answers or {}, drawn[-1], session.condition, blocked
             ),
+            selected_dish=str(drawn[-1]),
             alternatives=alts,
             reasons=reasons,
             finished=True,

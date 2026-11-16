@@ -33,6 +33,7 @@ REQUIRED_TABLES = (
     "decision_sessions",
     "chat_messages",
     "recommendation_feedback",
+    "recipe_photos",
 )
 
 

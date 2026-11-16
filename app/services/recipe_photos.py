@@ -8,15 +8,17 @@ from urllib.parse import quote, urlencode, urlsplit
 
 import httpx
 
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
 from app.config import get_settings
+from app.models import RecipePhoto
 
 PIXABAY_API = "https://pixabay.com/api/"
-ALLOWED_IMAGE_HOST = "cdn.pixabay.com"
-ALLOWED_IMAGE_ENTRY_HOST = "pixabay.com"
+ALLOWED_IMAGE_HOSTS = {"cdn.pixabay.com", "pixabay.com"}
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/avif"}
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
-# Pixabay asks API consumers to cache search responses for 24 hours.
-SEARCH_TTL = 24 * 60 * 60
+SEARCH_TTL = 6 * 60 * 60
 IMAGE_TTL = 24 * 60 * 60
 MAX_CACHE_ENTRIES = 256
 MAX_IMAGE_CACHE_BYTES = 48 * 1024 * 1024
@@ -92,7 +94,7 @@ def _cache_image(url: str, content: bytes, content_type: str) -> None:
     while (
         _image_cache_bytes > MAX_IMAGE_CACHE_BYTES
         or len(_image_cache) > MAX_CACHE_ENTRIES
-    ):
+    ) and _image_cache:
         _, (_, removed, _) = _image_cache.popitem(last=False)
         _image_cache_bytes -= len(removed)
 
@@ -103,6 +105,16 @@ _FOOD_WORDS = {
     "鸡": "chicken", "牛肉": "beef", "猪肉": "pork", "虾": "shrimp", "虾仁": "shrimp",
     "鱼": "fish", "面": "noodles", "米饭": "rice", "白菜": "cabbage", "青椒": "pepper",
     "蘑菇": "mushroom", "玉米": "corn", "南瓜": "pumpkin", "菠菜": "spinach",
+}
+_DISH_WORDS = {
+    "宫保鸡丁": "kung pao chicken", "宫爆鸡丁": "kung pao chicken", "麻婆豆腐": "mapo tofu",
+    "红烧肉": "braised pork belly", "糖醋里脊": "sweet and sour pork", "鱼香肉丝": "yu xiang pork",
+    "排骨饭": "pork ribs", "可乐排骨饭": "pork ribs", "可乐排骨": "pork ribs",
+    "披萨": "pizza", "披萨饭": "pizza", "黄焖鸡米饭": "chicken rice", "鸡米饭": "chicken rice",
+    "猪脚饭": "pork trotters rice", "猪蹄饭": "pork trotters rice", "盐煎肉盖饭": "pork belly rice",
+    "菠萝咕咾肉饭": "sweet and sour pork", "菠萝咕噜肉饭": "sweet and sour pork",
+    "咕咾肉": "sweet and sour pork", "咕噜肉": "sweet and sour pork", "糖醋肉": "sweet and sour pork",
+    "番茄炒蛋": "tomato egg", "西红柿炒鸡蛋": "tomato egg", "无油豆腐蒸蛋": "steamed tofu egg",
 }
 _COOKING_WORDS = {
     "蒸": "steamed", "炒": "stir fry", "煎": "pan fried", "烤": "roasted", "汤": "soup",
@@ -118,13 +130,16 @@ def _query_variants(name: str) -> list[str]:
     query = _normalized_query(name)
     if not query:
         return []
+    dish = next((english for token, english in _DISH_WORDS.items() if token in query), "")
+    if dish:
+        return [dish]
     food = next((english for token, english in _FOOD_WORDS.items() if token in query), "")
-    method = next((english for token, english in _COOKING_WORDS.items() if token in query), "dish")
-    variants = [f"{query} food", f"{food} {method} food" if food else f"{method} food"]
+    method = next((english for token, english in _COOKING_WORDS.items() if token in query), "")
+    variants = [f"{food} {method}" if food and method else food]
     return list(dict.fromkeys(variant.strip() for variant in variants if variant.strip()))
 
 
-def _safe_pixabay_url(value: object) -> str:
+def _safe_pixabay_page_url(value: object) -> str:
     url = str(value or "")
     parsed = urlsplit(url)
     if (
@@ -134,58 +149,59 @@ def _safe_pixabay_url(value: object) -> str:
         and parsed.username is None
         and parsed.password is None
         and not parsed.fragment
+        and parsed.path.startswith(("/photos/", "/get/"))
     ):
         return url
     return "https://pixabay.com/"
 
 
+def _safe_pixabay_image_url(value: object) -> str:
+    url = str(value or "")
+    parsed = urlsplit(url)
+    if (
+        parsed.scheme == "https"
+        and parsed.hostname in ALLOWED_IMAGE_HOSTS
+        and parsed.port in (None, 443)
+        and parsed.username is None
+        and parsed.password is None
+        and not parsed.fragment
+        and parsed.path.startswith(("/photo/", "/get/"))
+    ):
+        return url
+    return ""
+
+
 def _photo_from_payload(photo: object) -> dict | None:
     if not isinstance(photo, dict):
         return None
-    image_url = str(photo.get("largeImageURL") or photo.get("webformatURL") or "")
-    parsed = urlsplit(image_url)
-    if (
-        parsed.scheme != "https"
-        or parsed.hostname not in {ALLOWED_IMAGE_HOST, ALLOWED_IMAGE_ENTRY_HOST}
-        or parsed.port not in (None, 443)
-        or parsed.username is not None or parsed.password is not None or parsed.fragment
-        or (
-            parsed.hostname == ALLOWED_IMAGE_HOST and not parsed.path.startswith("/photo/")
-        )
-        or (
-            parsed.hostname == ALLOWED_IMAGE_ENTRY_HOST and not parsed.path.startswith("/get/")
-        )
-    ):
+    image_url = _safe_pixabay_image_url(photo.get("largeImageURL") or photo.get("webformatURL"))
+    if not image_url:
         return None
     user = str(photo.get("user") or "Pixabay")[:100]
     user_id = str(photo.get("user_id") or "").strip()
     photographer_url = (
         f"https://pixabay.com/users/{quote(user, safe='')}-{quote(user_id, safe='')}/"
-        if user_id and re.fullmatch(r"\d+", user_id)
-        else "https://pixabay.com/"
+        if user_id.isdigit() else "https://pixabay.com/"
     )
     return {
         "url": image_url,
         "photographer": user,
         "photographer_url": photographer_url,
-        "pixabay_url": _safe_pixabay_url(photo.get("pageURL")),
+        "pixabay_url": _safe_pixabay_page_url(photo.get("pageURL")),
+        "tags": str(photo.get("tags") or ""),
     }
 
 
-def _is_allowed_image_url(value: object) -> bool:
-    parsed = urlsplit(str(value or ""))
-    return (
-        parsed.scheme == "https"
-        and parsed.hostname in {ALLOWED_IMAGE_HOST, ALLOWED_IMAGE_ENTRY_HOST}
-        and parsed.port in (None, 443)
-        and parsed.username is None
-        and parsed.password is None
-        and not parsed.fragment
-        and (
-            (parsed.hostname == ALLOWED_IMAGE_HOST and parsed.path.startswith("/photo/"))
-            or (parsed.hostname == ALLOWED_IMAGE_ENTRY_HOST and parsed.path.startswith("/get/"))
-        )
-    )
+def _candidate_score(query: str, photo: dict) -> int:
+    tokens = {token for token in re.findall(r"[a-z]+", query.lower()) if len(token) > 2}
+    tags = set(re.findall(r"[a-z]+", photo.get("tags", "").lower()))
+    return len(tokens & tags) * 2
+
+
+def _matches_query(query: str, photo: dict) -> bool:
+    tokens = {token for token in re.findall(r"[a-z]+", query.lower()) if len(token) > 2}
+    tags = set(re.findall(r"[a-z]+", photo.get("tags", "").lower()))
+    return bool(tokens) and tokens.issubset(tags)
 
 
 async def _find_photo(name: str) -> dict | None:
@@ -202,6 +218,7 @@ async def _find_photo(name: str) -> dict | None:
         _cache_set(_search_cache, cache_key, (None,), 300)
         return None
     try:
+        candidates: list[dict] = []
         for search_query in variants:
             response = await _client_for_requests().get(
                 PIXABAY_API,
@@ -209,22 +226,25 @@ async def _find_photo(name: str) -> dict | None:
                     "key": key,
                     "q": search_query,
                     "image_type": "photo",
-                    "per_page": 3,
+                    "per_page": 10,
                     "safesearch": "true",
                     "lang": "en",
+                    "category": "food",
                 },
             )
             response.raise_for_status()
-            hits = response.json().get("hits", [])
-            photo = next(
-                (candidate for hit in hits if (candidate := _photo_from_payload(hit))),
-                None,
-            )
-            if photo:
-                _cache_set(_search_cache, cache_key, (photo,), SEARCH_TTL)
-                return photo
-        _cache_set(_search_cache, cache_key, (None,), SEARCH_TTL)
-        return None
+            for item in response.json().get("hits", []):
+                photo = _photo_from_payload(item)
+                if photo:
+                    if _matches_query(search_query, photo):
+                        photo["score"] = _candidate_score(search_query, photo)
+                        candidates.append(photo)
+        best = max(candidates, key=lambda photo: photo.get("score", 0), default=None)
+        required_score = 2 if all(len(token) > 2 for token in re.findall(r"[a-z]+", variants[0])) and len(re.findall(r"[a-z]+", variants[0])) == 1 else 4
+        if best is None or best.get("score", 0) < required_score:
+            best = None
+        _cache_set(_search_cache, cache_key, (best,), SEARCH_TTL)
+        return best
     except (httpx.HTTPError, ValueError, KeyError, TypeError):
         _cache_set(_search_cache, cache_key, (None,), 60)
         return None
@@ -255,16 +275,57 @@ def decorate_recipes(recipes: list) -> None:
         recipe.image_credit_url = ""
 
 
-async def photo_info(name: str) -> dict:
-    photo = await _find_photo(name)
+def _safe_catalog_url(value: str) -> bool:
+    parsed = urlsplit(value)
+    return (
+        parsed.scheme == "https"
+        and bool(parsed.hostname)
+        and parsed.port in (None, 443)
+        and parsed.username is None
+        and parsed.password is None
+        and not parsed.fragment
+    )
+
+
+def _empty_photo_info() -> dict:
     return {
-        "found": photo is not None,
-        "image_url": f"/api/v1/recipe-photo?{urlencode({'name': name})}",
-        "photographer": photo["photographer"] if photo else "",
-        "photographer_url": photo["photographer_url"] if photo else "",
-        "pixabay_url": photo["pixabay_url"] if photo else "",
-        "source_name": "Pixabay" if photo else "",
-        "source_url": photo["pixabay_url"] if photo else "",
+        "found": False,
+        "image_url": "",
+        "image_alt": "",
+        "photographer": "",
+        "photographer_url": "",
+        "credit_name": "",
+        "credit_url": "",
+    }
+
+
+async def photo_info(db: Session, name: str) -> dict:
+    normalized_name = _normalized_query(name)
+    photo = db.scalar(
+        select(RecipePhoto).where(RecipePhoto.recipe_name == normalized_name)
+    )
+    if photo is not None and _safe_catalog_url(photo.image_url):
+        return {
+            "found": True,
+            "image_url": photo.image_url,
+            "image_alt": photo.image_alt or f"{photo.recipe_name}成品图片",
+            "photographer": photo.photographer,
+            "photographer_url": photo.credit_url if _safe_catalog_url(photo.credit_url) else "",
+            "credit_name": photo.credit_name,
+            "credit_url": photo.credit_url if _safe_catalog_url(photo.credit_url) else "",
+        }
+
+    pixabay_photo = await _find_photo(normalized_name)
+    if pixabay_photo is None:
+        return _empty_photo_info()
+    return {
+        "found": True,
+        "image_url": f"/api/v1/recipe-photo?{urlencode({'name': normalized_name})}",
+        "image_alt": f"{normalized_name}成品图片",
+        "photographer": pixabay_photo["photographer"],
+        "photographer_url": pixabay_photo["photographer_url"],
+        "credit_name": f"Photo by {pixabay_photo['photographer']} on Pixabay",
+        "credit_url": pixabay_photo["pixabay_url"],
     }
 
 
@@ -278,14 +339,14 @@ async def fetch_photo(name: str, fallback_only: bool = False) -> tuple[bytes, st
     cached = _cached_image(url)
     if cached is not None:
         return cached[0], cached[1], True
-    if not _is_allowed_image_url(url):
+    if not _safe_pixabay_image_url(url):
         return _placeholder(name), "image/svg+xml", False
     try:
         async with _client_for_requests().stream("GET", url, follow_redirects=True) as response:
-            if not _is_allowed_image_url(response.url):
-                raise ValueError("untrusted image redirect")
             if response.status_code != 200:
                 raise ValueError("upstream status")
+            if not _safe_pixabay_image_url(str(getattr(response, "url", url))):
+                raise ValueError("untrusted image redirect")
             content_type = response.headers.get("content-type", "").split(";", 1)[0].lower()
             if content_type not in ALLOWED_IMAGE_TYPES:
                 raise ValueError("upstream content type")
