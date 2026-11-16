@@ -1479,6 +1479,7 @@
       const info = await response.json();
       if (!info.found || !wrap.isConnected) return;
       image.alt = info.image_alt || `${name}成品图片`;
+      image.loading = 'eager';
       const creditName = info.credit_name || info.photographer || '';
       credit.innerHTML = creditName
         ? `<a href="${escapeHtml(info.credit_url || info.photographer_url || '#')}" target="_blank" rel="noopener noreferrer">${escapeHtml(creditName)}</a>`
@@ -1500,7 +1501,9 @@
 
   function authConfig() {
     if (!authCfgPromise) {
-      authCfgPromise = fetch(`${api}/auth/config`)
+      // 配置接口只决定验证码登录是否可用；慢或失败时退回密码登录，
+      // 不能让它把整个登录框卡住。
+      authCfgPromise = fetch(`${api}/auth/config`, { signal: AbortSignal.timeout(4000) })
         .then(res => res.ok ? res.json() : null)
         .then(data => {
           if (data) authCfg = { email_enabled: !!data.email_enabled };
@@ -1544,6 +1547,7 @@
   }
 
   function ensureLoggedIn() {
+    if (currentUser) return Promise.resolve();
     if (!authPromise) {
       authPromise = (async () => {
         await authConfig();
@@ -1559,11 +1563,14 @@
     return authPromise;
   }
 
-  async function apiFetch(url, options = {}, retried = false) {
-    const res = await fetch(url, { credentials: 'same-origin', ...options });
+  async function apiFetch(url, options = {}, retried = false, timeoutMs = 0) {
+    const opts = { credentials: 'same-origin', ...options };
+    // 每次尝试单独计时。登录后重试时不能复用已经过期的 AbortSignal。
+    if (timeoutMs > 0 && !opts.signal) opts.signal = AbortSignal.timeout(timeoutMs);
+    const res = await fetch(url, opts);
     if (res.status === 401 && !retried) {
       await ensureLoggedIn();
-      return apiFetch(url, options, true);
+      return apiFetch(url, options, true, timeoutMs);
     }
     return res;
   }
@@ -1985,7 +1992,7 @@
         body: JSON.stringify({ confirm: 'DELETE' })
       });
       if (!res.ok) throw new Error();
-      await Promise.all([loadPrefs(), loadWeek()]);
+      await Promise.all([loadPrefs(), loadWeek(true)]);
       flashToast('已清空所有数据');
     } catch { flashToast('清空失败，稍后再试'); }
   });
@@ -2028,7 +2035,13 @@
   async function startDecision(mode) {
     session = null; $('decide-result').innerHTML = '';
     try {
-      const res = await apiFetch(`${api}/decisions?mode=${mode}&condition=${encodeURIComponent(cond)}`, { method: 'POST' });
+      const res = await apiFetch(
+        `${api}/decisions?mode=${mode}&condition=${encodeURIComponent(cond)}`,
+        { method: 'POST' },
+        false,
+        10000
+      );
+      if (!res.ok) throw new Error('start failed');
       session = await res.json();
       if (session.condition && session.condition !== cond) {
         cond = session.condition;
@@ -3191,7 +3204,7 @@
     $('meal-description').addEventListener('keydown', e => { if (e.key === 'Enter') saveMeal(); });
     $('meal-entry').querySelectorAll('.del').forEach(b => b.onclick = async () => {
       await apiFetch(`${api}/meals/${b.dataset.id}`, { method: 'DELETE' });
-      await loadWeek();
+      await loadWeek(true);
     });
   }
 
@@ -3329,11 +3342,38 @@
     }
   }
 
-  async function loadWeek() {
+  let weekFetch = null;
+  function fetchWeek(force = false) {
     const start = weekStart(), end = new Date(start);
     end.setDate(end.getDate() + 7);
-    const res = await apiFetch(`${api}/meals?start=${encodeURIComponent(start.toISOString())}&end=${encodeURIComponent(end.toISOString())}`);
-    weekMeals = await res.json();
+    const key = `${start.toISOString()}|${end.toISOString()}`;
+    if (!force && weekFetch && weekFetch.key === key && Date.now() - weekFetch.at < 5000) {
+      return weekFetch.promise;
+    }
+    const promise = apiFetch(
+      `${api}/meals?start=${encodeURIComponent(start.toISOString())}&end=${encodeURIComponent(end.toISOString())}`,
+      {},
+      false,
+      10000
+    ).then(res => res.ok ? res.json() : []);
+    weekFetch = { key, at: Date.now(), promise };
+    promise.catch(() => {
+      if (weekFetch && weekFetch.promise === promise) weekFetch = null;
+    });
+    return promise;
+  }
+
+  async function loadWeek(force = false) {
+    if (force) weekFetch = null;
+    const start = weekStart(), end = new Date(start);
+    end.setDate(end.getDate() + 7);
+    let list = [];
+    try {
+      list = await fetchWeek();
+    } catch (e) {
+      return;
+    }
+    weekMeals = list;
     noteMealRange(weekMeals, start, end);
     renderWeek();
     renderWeekMini(weekMeals);
@@ -3349,7 +3389,7 @@
       body: JSON.stringify({ description, meal_type: selectedType, eaten_at: eatenAt.toISOString() })
     });
     if (!res.ok) { setStatus('保存失败', true); return; }
-    await loadWeek();
+    await loadWeek(true);
   }
 
   async function skipMeal() {
@@ -3369,7 +3409,7 @@
       body: JSON.stringify({ description: '没吃', meal_type: selectedType, eaten_at: eatenAt.toISOString() })
     });
     if (!res.ok) { setStatus('保存失败', true); return; }
-    await loadWeek();
+    await loadWeek(true);
   }
 
   /* ---------- 模式切换 ---------- */
@@ -3493,11 +3533,8 @@
     end.setDate(end.getDate() + 7);
     let list = [];
     try {
-      const res = await apiFetch(`${api}/meals?start=${encodeURIComponent(start.toISOString())}&end=${encodeURIComponent(end.toISOString())}`);
-      if (res.ok) {
-        list = await res.json();
-        noteMealRange(list, start, end);
-      }
+      list = await fetchWeek();
+      noteMealRange(list, start, end);
     } catch (e) { /* 静默 */ }
     renderWeekMini(list);
   }
@@ -3531,21 +3568,22 @@
     savedTab.click();
   }
 
-  // 启动门卫：先确认登录态，没登录就弹登录框，登录成功后才初始化页面。
+  // 页面外壳先初始化，登录态在后台确认；慢接口不能阻塞标签和交互。
+  boot();
   (async () => {
     try {
       const res = await fetch(`${api}/auth/me`, { credentials: 'same-origin' });
       if (res.ok) {
         currentUser = await res.json();
-      } else {
+        applyUserUI();
+      } else if (res.status === 401 && !currentUser) {
+        // 请求发出后用户可能已经通过其他入口登录，避免旧响应再弹一次登录框。
         await ensureLoggedIn();
-        if (!currentUser) return;
+        if (currentUser) applyUserUI();
       }
     } catch (e) {
-      return;
+      // 网络慢/失败时页面仍可使用；受保护请求遇到 401 会自行触发登录。
     }
-    applyUserUI();
-    boot();
   })();
 </script>
 </body>

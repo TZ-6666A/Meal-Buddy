@@ -35,7 +35,7 @@ AMAP_KEY=你的高德Web服务Key
 
 `.env` 已加入 Git 忽略规则，真实 Key 只保存在服务端，不要粘贴到网页代码、URL、日志、截图或提交到仓库。浏览器只请求同源的 `/api/v1/*`，OpenAI、高德和 Pixabay Key 不会下发给前端。未配置高德 Key 时，附近推荐会提示配置方法，其他本地推荐仍可使用。
 
-推荐菜谱配图使用 Pixabay API 搜索。申请地址：`https://pixabay.com/api/docs/`。将 Pixabay API Key 填入服务器 `.env` 的 `PIXABAY_API_KEY` 并重启应用；图片由后端下载、同源代理并缓存，页面显示 Pixabay 来源署名。未配置或图片服务暂不可用时，页面显示菜名占位图，不影响推荐与做饭流程。
+推荐菜谱配图优先读取 `recipe_photos` 表中的国内 OSS/COS 图片目录；目录没有匹配时，本地开发可以用 Pixabay API 临时回退搜索。申请地址：`https://pixabay.com/api/docs/`。将 Pixabay API Key 填入被 Git 忽略的 `.env` 中的 `PIXABAY_API_KEY` 并重启应用；图片由后端下载、同源代理并缓存，页面显示 Pixabay 来源署名。搜索结果不够相关、未配置 Key 或图片服务暂不可用时，页面保持纯文字，不显示明显不相关图片。正式部署建议把已授权图片上传 OSS/COS 后录入目录，不依赖海外搜索服务。
 
 `/docs` and `/openapi.json` remain public for local development. Anyone who can reach them can inspect the API contract; do not expose them to an untrusted network.
 
@@ -75,9 +75,12 @@ sudo apt install -y caddy
 
 ```
 tz369.xyz {
+    encode zstd gzip
     reverse_proxy localhost:8000
 }
 ```
+
+`encode` 让 Caddy 对 API JSON 等响应再做压缩；应用入口已经预压缩 HTML，不会重复压缩。
 
 ```bash
 sudo systemctl reload caddy    # 或 restart
@@ -93,6 +96,8 @@ sudo systemctl status caddy
 - 验证：`curl -I https://你的域名` 返回 200，且 `docker compose logs app` 里能看到真实客户端 IP 而不是 `172.x.x.x`。
 
 应用侧已经配合反代做了两件事，换域名时无需再改代码：`compose.yaml` 里 `FORWARDED_ALLOW_IPS` 让 uvicorn 采信代理写入的 `X-Forwarded-For`；`app/security.py` 的 `client_host()` 只在直连对端是内网地址时才读该头，避免外部伪造。限流和 IP 粗定位都走这个函数。
+
+线上访问慢时，先按 [`docs/performance.md`](docs/performance.md) 对比 Cloudflare 与直连源站的耗时，再决定是否需要调整 DNS/CDN。
 
 ## 数据库迁移
 

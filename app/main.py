@@ -1,11 +1,14 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import gzip
+import hashlib
 import logging
+import time
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import Response
 
 from app.accounts import ensure_bootstrap
 from app.api import admin_router, public_router, router
@@ -66,13 +69,52 @@ app.add_middleware(
     allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["Content-Type", "Authorization", "X-API-Token"],
 )
+
+
+@app.middleware("http")
+async def add_server_timing(request: Request, call_next):
+    """记录慢接口，方便在线上定位长尾，不记录查询参数或凭据。"""
+    started = time.perf_counter()
+    response = await call_next(request)
+    elapsed_ms = (time.perf_counter() - started) * 1000
+    response.headers["Server-Timing"] = f"app;dur={elapsed_ms:.0f}"
+    path = request.url.path
+    if (
+        elapsed_ms >= 1000
+        and path.startswith("/api/")
+        and not path.endswith("/recipe-photo")
+        and "/stream" not in path
+    ):
+        logger.warning(
+            "slow_request path=%s status=%s duration_ms=%.0f",
+            path,
+            response.status_code,
+            elapsed_ms,
+        )
+    return response
+
+
 app.include_router(public_router)
 app.include_router(admin_router)
 app.include_router(router, dependencies=[Depends(get_current_user)])
 
 WEB_PAGE_PATH = Path(__file__).with_name("web").joinpath("index.html")
+_WEB_PAGE_BYTES = WEB_PAGE_PATH.read_bytes()
+_WEB_PAGE_GZIP = gzip.compress(_WEB_PAGE_BYTES, compresslevel=9, mtime=0)
+_WEB_PAGE_ETAG = '"' + hashlib.sha256(_WEB_PAGE_BYTES).hexdigest()[:16] + '"'
 
 
-@app.get("/", response_class=HTMLResponse, include_in_schema=False)
-def web_preview() -> HTMLResponse:
-    return HTMLResponse(WEB_PAGE_PATH.read_text(encoding="utf-8"))
+@app.get("/", include_in_schema=False)
+def web_preview(request: Request) -> Response:
+    """单页应用入口：预压缩、ETag 和短缓存，避免慢网每次重传整页。"""
+    headers = {
+        "Cache-Control": "public, max-age=0, s-maxage=300",
+        "ETag": _WEB_PAGE_ETAG,
+        "Vary": "Accept-Encoding",
+    }
+    if request.headers.get("if-none-match") == _WEB_PAGE_ETAG:
+        return Response(status_code=304, headers=headers)
+    if "gzip" in request.headers.get("accept-encoding", "").lower():
+        headers["Content-Encoding"] = "gzip"
+        return Response(_WEB_PAGE_GZIP, media_type="text/html", headers=headers)
+    return Response(_WEB_PAGE_BYTES, media_type="text/html", headers=headers)
