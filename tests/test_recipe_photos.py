@@ -494,3 +494,52 @@ def test_recommendation_has_same_origin_photo_fields(client, fake_settings, monk
     assert recipe["image_fallback_url"].startswith("/api/v1/recipe-photo?")
     assert recipe["image_alt"]
     assert recipe["image_credit"] == ""
+
+
+def test_wrong_food_form_is_rejected():
+    # 汉堡带 bacon/potato 标签，不能当成“腊肉炒土豆”。
+    photo = {"tags": "bacon potato burger cheese fried gourmet"}
+    assert recipe_photos._matches_query("bacon potato", photo) is False
+
+
+def test_dish_named_after_form_keeps_its_tag():
+    photo = {"tags": "burger beef cheese food"}
+    assert recipe_photos._matches_query("beef burger", photo) is True
+
+
+def test_local_dish_without_curated_photo_skips_search(monkeypatch):
+    async def boom(*args, **kwargs):
+        raise AssertionError("本地菜不应发起 Pixabay 搜索")
+
+    monkeypatch.setattr(recipe_photos, "_search_pixabay", boom)
+
+    import asyncio
+    assert asyncio.run(recipe_photos._find_photo("镇安腊肉炒土豆")) is None
+
+
+def test_local_dish_with_curated_match_still_searches(monkeypatch):
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"hits": [{
+                "largeImageURL": "https://pixabay.com/get/tofu.jpg",
+                "user": "Chef",
+                "user_id": 1,
+                "pageURL": "https://pixabay.com/photos/tofu-1/",
+                "tags": "tofu dish food asian",
+            }]}
+
+    class FakeClient:
+        async def get(self, *args, **kwargs):
+            return FakeResponse()
+
+    monkeypatch.setattr(recipe_photos, "_client_for_requests", lambda: FakeClient())
+    monkeypatch.setattr(recipe_photos, "get_settings", lambda: SimpleNamespace(pixabay_api_key="test-key"))
+
+    import asyncio
+    result = asyncio.run(recipe_photos._find_photo("洛南豆腐"))
+
+    assert result is not None
+    assert result["url"] == "https://pixabay.com/get/tofu.jpg"
