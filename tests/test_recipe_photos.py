@@ -400,16 +400,33 @@ def test_search_falls_back_to_later_variants(monkeypatch):
 
 
 def test_photo_endpoint_strict_returns_404_when_no_photo(client, monkeypatch):
-    async def no_photo(name, fallback_only=False, preview=False):
-        return b"", "image/svg+xml", False
+    async def no_photo(name, preview=False):
+        return None
 
-    monkeypatch.setattr(recipe_photos, "fetch_photo", no_photo)
+    monkeypatch.setattr(recipe_photos, "stream_photo", no_photo)
     response = client.get(
         "/api/v1/recipe-photo",
         params={"name": "不存在的菜", "strict": "true"},
     )
 
     assert response.status_code == 404
+    assert response.headers["cache-control"] == "no-store"
+
+
+def test_photo_endpoint_streams_pixabay_image(client, monkeypatch):
+    async def fake_stream(name, preview=False):
+        async def body():
+            yield b"jpeg-bytes"
+
+        return body(), "image/jpeg", True
+
+    monkeypatch.setattr(recipe_photos, "stream_photo", fake_stream)
+    response = client.get("/api/v1/recipe-photo", params={"name": "豆腐蒸蛋"})
+
+    assert response.status_code == 200
+    assert response.content == b"jpeg-bytes"
+    assert response.headers["x-recipe-photo"] == "pixabay"
+    assert "max-age=86400" in response.headers["cache-control"]
 
 
 def test_photo_endpoint_redirects_catalog_image(client):
@@ -435,11 +452,15 @@ def test_photo_endpoint_redirects_catalog_image(client):
 def test_photo_endpoint_passes_preview_flag(client, monkeypatch):
     seen = {}
 
-    async def fake_photo(name, fallback_only=False, preview=False):
+    async def fake_stream(name, preview=False):
         seen["preview"] = preview
-        return b"image", "image/jpeg", True
 
-    monkeypatch.setattr(recipe_photos, "fetch_photo", fake_photo)
+        async def body():
+            yield b"image"
+
+        return body(), "image/jpeg", True
+
+    monkeypatch.setattr(recipe_photos, "stream_photo", fake_stream)
     response = client.get(
         "/api/v1/recipe-photo",
         params={"name": "番茄炒蛋", "preview": "true"},

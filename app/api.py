@@ -271,11 +271,26 @@ async def recipe_photo(
                 status_code=status.HTTP_307_TEMPORARY_REDIRECT,
                 headers={"Cache-Control": "public, max-age=86400, stale-while-revalidate=604800"},
             )
+        streamed = await recipe_photos.stream_photo(name, preview=preview)
+        if streamed is not None:
+            iterator, content_type, _ = streamed
+            return StreamingResponse(
+                iterator,
+                media_type=content_type,
+                headers={
+                    "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
+                    "X-Recipe-Photo": "pixabay",
+                },
+            )
+        if strict:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="没有匹配的菜品图片",
+                headers={"Cache-Control": "no-store"},
+            )
     content, content_type, found = await recipe_photos.fetch_photo(
         name, fallback_only=fallback, preview=preview
     )
-    if strict and not found and not fallback:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="没有匹配的菜品图片")
     return Response(
         content=content,
         media_type=content_type,
