@@ -1496,31 +1496,24 @@
     }
   }
 
-  function dishPhotoUrl(name, preview = false) {
+  function dishPhotoUrl(name) {
     const params = new URLSearchParams({ name, strict: '1' });
-    if (preview) params.set('preview', '1');
     return `/api/v1/recipe-photo?${params}`;
   }
 
   async function loadDishPhoto(name, wrap, image, credit, onLoaded = () => {}, onFailed = () => {}) {
     if (!name || !wrap || !image || !credit) return;
-    const previewUrl = dishPhotoUrl(name, true);
+    // 只请求 640px 的成品图，不再先放 150px 小图再替换：
+    // 小图被放大后就是“模糊版”，等清晰图反而更慢，两次请求还会互相抢服务端资源。
     const fullUrl = dishPhotoUrl(name);
-    let info = null;
-    let infoResolved = false;
-    let previewShown = false;
-    let upgraded = false;
-    let catalogChosen = false;
     let failed = false;
-    let previewFailed = false;
+    let shown = false;
     let skeletonTimer = 0;
-    let previewFallbackTimer = 0;
 
     const fail = () => {
       if (failed) return;
       failed = true;
       clearTimeout(skeletonTimer);
-      clearTimeout(previewFallbackTimer);
       wrap.classList.remove('is-loading');
       wrap.hidden = true;
       credit.hidden = true;
@@ -1529,7 +1522,7 @@
     };
 
     const showSkeleton = () => {
-      if (!wrap.isConnected || failed) return;
+      if (!wrap.isConnected || failed || shown) return;
       if (image.complete && image.naturalWidth > 0) return;
       wrap.hidden = false;
       wrap.classList.add('is-loading');
@@ -1542,81 +1535,43 @@
     image.fetchPriority = 'high';
     image.decoding = 'async';
 
-    image.onerror = () => {
-      if (failed) return;
-      if (image.src.includes('preview=1')) {
-        previewFailed = true;
-        clearTimeout(previewFallbackTimer);
-        // 预览图失败时等 info 确认；info 有图就改用接口给的地址。
-        if (infoResolved) {
-          if (info && info.found && info.image_url) image.src = info.image_url;
-          else fail();
-        }
-        return;
-      }
-      // 没有预览图可退时，完整图失败就隐藏。
-      if (!previewShown) fail();
+    const applyCredit = () => {
+      if (credit.textContent) credit.hidden = !shown;
     };
+
+    image.onerror = () => fail();
 
     image.onload = () => {
       if (failed || !wrap.isConnected) return;
       if (isLikelyGrayscale(image)) { fail(); return; }
       clearTimeout(skeletonTimer);
-      clearTimeout(previewFallbackTimer);
+      shown = true;
       wrap.classList.remove('is-loading');
-      if (image.src.includes('preview=1')) previewShown = true;
       wrap.hidden = false;
       credit.hidden = !credit.textContent;
       onLoaded();
-      // 先显示 150px 小图，再在后台换 640px 清晰图，减少等待。
-      if (!catalogChosen && !upgraded && image.src.includes('preview=1')) {
-        upgraded = true;
-        const full = new Image();
-        full.onload = () => {
-          if (failed || catalogChosen || !wrap.isConnected) return;
-          if (isLikelyGrayscale(full)) return;
-          image.src = fullUrl; // 浏览器缓存命中，基本无感
-        };
-        full.src = fullUrl;
-      }
     };
 
-    // 不等待信息接口，先请求小图；文字出来后图片能更早开始加载。
-    image.src = previewUrl;
+    // 图片和解说并行请求；文字晚到只影响署名，不影响图片显示。
+    image.src = fullUrl;
 
     try {
       const response = await fetch(`/api/v1/recipe-photo-info?${new URLSearchParams({ name })}`);
       if (!response.ok) return;
-      info = await response.json();
-      infoResolved = true;
-      if (!info.found) {
-        fail();
-        return;
-      }
+      const info = await response.json();
+      if (!info.found) { fail(); return; }
       image.alt = info.image_alt || `${name}成品图片`;
       const creditName = info.credit_name || info.photographer || '';
       credit.innerHTML = creditName
         ? `<a href="${escapeHtml(info.credit_url || info.photographer_url || '#')}" target="_blank" rel="noopener noreferrer">${escapeHtml(creditName)}</a>`
         : '';
-      credit.hidden = !creditName;
-      // 目录 OSS 图片优先；否则让预览图继续加载，不要因为 info 先返回就取消它。
+      applyCredit();
+      // 目录 OSS 图（比 Pixabay 快）或接口换了地址时，直接切过去。
       if (info.image_url && !info.image_url.startsWith('/api/v1/recipe-photo')) {
-        catalogChosen = true;
-        failed = false;
         image.src = info.image_url;
-      } else if (info.image_url) {
-        if (previewFailed) {
-          image.src = info.image_url;
-        } else if (!previewShown) {
-          // 预览图还在下载；给它 1.5 秒，仍没出来就退回完整图。
-          clearTimeout(previewFallbackTimer);
-          previewFallbackTimer = window.setTimeout(() => {
-            if (!previewShown && !failed && info.image_url) image.src = info.image_url;
-          }, 1500);
-        }
       }
     } catch (e) {
-      // 信息接口失败时，已经开始的图片加载继续，不影响图片本身。
+      // 信息接口失败不影响已经开始的图片加载。
     }
   }
 

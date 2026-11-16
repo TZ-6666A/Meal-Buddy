@@ -5,6 +5,8 @@ import html
 import re
 import time
 from collections import OrderedDict
+from collections.abc import AsyncIterator
+from contextlib import AsyncExitStack
 from urllib.parse import quote, urlencode, urlsplit
 
 import httpx
@@ -530,38 +532,71 @@ async def photo_info(db: Session, name: str) -> dict:
     }
 
 
+async def _iter_bytes(content: bytes) -> AsyncIterator[bytes]:
+    yield content
+
+
+async def stream_photo(
+    name: str, preview: bool = False
+) -> tuple[AsyncIterator[bytes], str, bool] | None:
+    """返回 (字节流, content-type, 是否命中)。没有合适图片时返回 None。
+
+    边下载边转发，不再把整张图读完才回给浏览器：跨境链路下能省掉一整趟传输时间。
+    """
+    photo = await _find_photo(name)
+    if not photo:
+        return None
+    url = (photo.get("preview_url") if preview else "") or photo["url"]
+    cached = _cached_image(url)
+    if cached is not None:
+        return _iter_bytes(cached[0]), cached[1], True
+    if not _safe_pixabay_image_url(url):
+        return None
+    stack = AsyncExitStack()
+    try:
+        response = await stack.enter_async_context(
+            _client_for_requests().stream("GET", url, follow_redirects=True)
+        )
+        if response.status_code != 200:
+            raise ValueError("upstream status")
+        if not _safe_pixabay_image_url(str(getattr(response, "url", url))):
+            raise ValueError("untrusted image redirect")
+        content_type = response.headers.get("content-type", "").split(";", 1)[0].lower()
+        if content_type not in ALLOWED_IMAGE_TYPES:
+            raise ValueError("upstream content type")
+    except (httpx.HTTPError, ValueError):
+        await stack.aclose()
+        return None
+
+    async def body() -> AsyncIterator[bytes]:
+        chunks: list[bytes] = []
+        size = 0
+        complete = True
+        try:
+            async for chunk in response.aiter_bytes():
+                size += len(chunk)
+                if size > MAX_IMAGE_BYTES:
+                    complete = False
+                    break
+                chunks.append(chunk)
+                yield chunk
+        finally:
+            await stack.aclose()
+        # 只有完整读完才进缓存，客户端中途断开时不写入半张图。
+        if complete and chunks:
+            _cache_image(url, b"".join(chunks), content_type)
+
+    return body(), content_type, True
+
+
 async def fetch_photo(
     name: str, fallback_only: bool = False, preview: bool = False
 ) -> tuple[bytes, str, bool]:
     if fallback_only:
         return _placeholder(name), "image/svg+xml", False
-    photo = await _find_photo(name)
-    if not photo:
+    result = await stream_photo(name, preview=preview)
+    if result is None:
         return _placeholder(name), "image/svg+xml", False
-    url = (photo.get("preview_url") if preview else "") or photo["url"]
-    cached = _cached_image(url)
-    if cached is not None:
-        return cached[0], cached[1], True
-    if not _safe_pixabay_image_url(url):
-        return _placeholder(name), "image/svg+xml", False
-    try:
-        async with _client_for_requests().stream("GET", url, follow_redirects=True) as response:
-            if response.status_code != 200:
-                raise ValueError("upstream status")
-            if not _safe_pixabay_image_url(str(getattr(response, "url", url))):
-                raise ValueError("untrusted image redirect")
-            content_type = response.headers.get("content-type", "").split(";", 1)[0].lower()
-            if content_type not in ALLOWED_IMAGE_TYPES:
-                raise ValueError("upstream content type")
-            chunks = []
-            size = 0
-            async for chunk in response.aiter_bytes():
-                size += len(chunk)
-                if size > MAX_IMAGE_BYTES:
-                    raise ValueError("image too large")
-                chunks.append(chunk)
-        content = b"".join(chunks)
-        _cache_image(url, content, content_type)
-        return content, content_type, True
-    except (httpx.HTTPError, ValueError):
-        return _placeholder(name), "image/svg+xml", False
+    iterator, content_type, found = result
+    content = b"".join([chunk async for chunk in iterator])
+    return content, content_type, found
