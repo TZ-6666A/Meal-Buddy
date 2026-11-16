@@ -12,10 +12,12 @@ from app.services import recipe_photos
 @pytest.fixture(autouse=True)
 def clear_photo_state():
     recipe_photos._search_cache.clear()
+    recipe_photos._search_tasks.clear()
     recipe_photos._image_cache.clear()
     recipe_photos._image_cache_bytes = 0
     yield
     recipe_photos._search_cache.clear()
+    recipe_photos._search_tasks.clear()
     recipe_photos._image_cache.clear()
     recipe_photos._image_cache_bytes = 0
 
@@ -103,6 +105,7 @@ def test_photo_info_reads_oss_url_and_credit_from_catalog(client, monkeypatch):
     assert response.json() == {
         "found": True,
         "image_url": "https://fandazi.oss-cn-shanghai.aliyuncs.com/dishes/tomato-egg.webp",
+        "preview_url": "https://fandazi.oss-cn-shanghai.aliyuncs.com/dishes/tomato-egg.webp",
         "image_alt": "番茄炒蛋成品",
         "photographer": "小饭",
         "photographer_url": "https://fandazi.oss-cn-shanghai.aliyuncs.com/credits/terms",
@@ -156,6 +159,9 @@ def test_photo_info_falls_back_to_pixabay_when_catalog_misses(client, monkeypatc
     assert response.json() == {
         "found": True,
         "image_url": f"/api/v1/recipe-photo?name={quote('豆腐蒸蛋')}",
+        "preview_url": (
+            f"/api/v1/recipe-photo?name={quote('豆腐蒸蛋')}&preview=1&strict=1"
+        ),
         "image_alt": "豆腐蒸蛋成品图片",
         "photographer": "Chef",
         "photographer_url": "https://pixabay.com/users/Chef-1/",
@@ -189,7 +195,7 @@ def test_image_cache_respects_byte_budget(monkeypatch):
 
 
 def test_photo_endpoint_serves_only_local_fallback_when_requested(client, monkeypatch):
-    async def no_photo(name, fallback_only=False):
+    async def no_photo(name, fallback_only=False, preview=False):
         assert fallback_only is True
         return recipe_photos._placeholder(name), "image/svg+xml", False
 
@@ -300,6 +306,147 @@ def test_search_accepts_cooked_food(monkeypatch):
     assert result["url"] == "https://pixabay.com/get/fish.jpg"
     assert seen["q"] == "grilled fish"
     assert seen["category"] == "food"
+
+
+def test_payload_prefers_webformat_and_provides_preview():
+    photo = recipe_photos._photo_from_payload({
+        "webformatURL": "https://pixabay.com/get/640.jpg",
+        "largeImageURL": "https://pixabay.com/get/1280.jpg",
+        "previewURL": "https://pixabay.com/get/150.jpg",
+        "tags": "food",
+    })
+
+    assert photo["url"] == "https://pixabay.com/get/640.jpg"
+    assert photo["preview_url"] == "https://pixabay.com/get/150.jpg"
+
+
+def test_finished_food_filter_rejects_raw_scene():
+    assert not recipe_photos._matches_query(
+        "grilled fish", {"tags": "fish, fresh, nature, food"}, require_finished=True
+    )
+    assert recipe_photos._matches_query(
+        "grilled fish", {"tags": "fish, grilled, plate, food"}, require_finished=True
+    )
+
+
+def test_concurrent_searches_are_coalesced(monkeypatch):
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"hits": [{
+                "webformatURL": "https://pixabay.com/get/tomato.jpg",
+                "tags": "tomato egg food plate",
+            }]}
+
+    class FakeClient:
+        calls = 0
+
+        async def get(self, *args, **kwargs):
+            import asyncio
+            FakeClient.calls += 1
+            await asyncio.sleep(0.01)
+            return FakeResponse()
+
+    monkeypatch.setattr(recipe_photos, "_client_for_requests", lambda: FakeClient())
+    monkeypatch.setattr(recipe_photos, "get_settings", lambda: SimpleNamespace(pixabay_api_key="test-key"))
+
+    import asyncio
+    async def run():
+        return await asyncio.gather(
+            recipe_photos._find_photo("番茄炒蛋"),
+            recipe_photos._find_photo("番茄炒蛋"),
+        )
+
+    results = asyncio.run(run())
+    assert all(results)
+    assert FakeClient.calls == 1
+
+
+def test_search_falls_back_to_later_variants(monkeypatch):
+    calls = []
+
+    class FakeResponse:
+        def __init__(self, hits):
+            self.hits = hits
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"hits": self.hits}
+
+    class FakeClient:
+        async def get(self, *args, **kwargs):
+            query = kwargs["params"]["q"]
+            calls.append(query)
+            if query == "pork belly rice":
+                return FakeResponse([])
+            return FakeResponse([{
+                "webformatURL": "https://pixabay.com/get/pork.jpg",
+                "tags": "braised pork rice food",
+            }])
+
+    monkeypatch.setattr(recipe_photos, "_client_for_requests", lambda: FakeClient())
+    monkeypatch.setattr(recipe_photos, "get_settings", lambda: SimpleNamespace(pixabay_api_key="test-key"))
+
+    import asyncio
+    result = asyncio.run(recipe_photos._find_photo("红烧肉盖饭"))
+
+    assert result["url"] == "https://pixabay.com/get/pork.jpg"
+    assert calls[0] == "pork belly rice"
+    assert "braised pork rice" in calls
+
+
+def test_photo_endpoint_strict_returns_404_when_no_photo(client, monkeypatch):
+    async def no_photo(name, fallback_only=False, preview=False):
+        return b"", "image/svg+xml", False
+
+    monkeypatch.setattr(recipe_photos, "fetch_photo", no_photo)
+    response = client.get(
+        "/api/v1/recipe-photo",
+        params={"name": "不存在的菜", "strict": "true"},
+    )
+
+    assert response.status_code == 404
+
+
+def test_photo_endpoint_redirects_catalog_image(client):
+    with client.testing_session() as db:
+        db.add(RecipePhoto(
+            recipe_name="番茄炒蛋",
+            image_url="https://fandazi.oss-cn-shanghai.aliyuncs.com/dishes/tomato-egg.webp",
+        ))
+        db.commit()
+
+    response = client.get(
+        "/api/v1/recipe-photo",
+        params={"name": "番茄炒蛋"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 307
+    assert response.headers["location"] == (
+        "https://fandazi.oss-cn-shanghai.aliyuncs.com/dishes/tomato-egg.webp"
+    )
+
+
+def test_photo_endpoint_passes_preview_flag(client, monkeypatch):
+    seen = {}
+
+    async def fake_photo(name, fallback_only=False, preview=False):
+        seen["preview"] = preview
+        return b"image", "image/jpeg", True
+
+    monkeypatch.setattr(recipe_photos, "fetch_photo", fake_photo)
+    response = client.get(
+        "/api/v1/recipe-photo",
+        params={"name": "番茄炒蛋", "preview": "true"},
+    )
+
+    assert response.status_code == 200
+    assert seen["preview"] is True
 
 
 async def _async_value(value):
