@@ -177,6 +177,19 @@ _COOKING_WORDS = {
     "粥": "porridge", "炖": "stew", "焖": "braised", "凉拌": "cold salad",
 }
 
+# 商洛本地菜在图库里几乎找不到对应照片，泛化匹配很容易配成“另一道菜”。
+# 这里采用白名单：只有实测匹配得住的才允许出图，其余宁可不显示图片。
+_LOCAL_DISHES = {
+    "商洛洋芋糍粑", "商洛搅团", "商洛浆水面", "洛南豆腐",
+    "洛南核桃馍", "镇安腊肉炒土豆", "商州烩菜配米饭", "商洛柿饼",
+}
+_LOCAL_PHOTO_OK = {
+    "商洛洋芋糍粑",  # 洋芋糍粑 ≈ mashed potato，形态一致
+    "商洛浆水面",    # noodle soup，形态一致
+    "洛南豆腐",      # tofu dish，形态一致
+    "商州烩菜配米饭",  # stew，形态一致（配米饭另说）
+}
+
 # 这些标签通常意味着“市场/摊位/生食材/风景/黑白片”，不是成品菜。
 _BAD_TAGS = {
     "blackandwhite", "monochrome", "grayscale", "greyscale", "noir",
@@ -186,6 +199,16 @@ _BAD_TAGS = {
     "field", "paddy", "harvest", "farm", "farmer", "animal", "wildlife", "underwater",
     "sea", "ocean", "lake", "river", "landscape",
     "live", "kitchen", "chef", "menu",
+}
+# 西式快餐/甜点等"菜品形态"标签：家常中餐基本不可能是这些，
+# 但只要标签里同时有 bacon、potato 就先被搜出来（例如汉堡）。
+# 命中这些形态直接判为不匹配，避免"腊肉炒土豆配汉堡图"。
+_WRONG_FORM_TAGS = {
+    "burger", "hamburger", "sandwich", "hotdog",
+    "pizza", "pasta", "spaghetti", "lasagna", "macaroni",
+    "taco", "burrito", "nachos", "quesadilla",
+    "sushi", "sashimi",
+    "cake", "dessert", "cookie", "pastry", "donut", "bagel", "cupcake", "pudding",
 }
 _COOKED_TAGS = {
     "food", "dish", "meal", "cuisine", "plate", "bowl", "cooked", "grilled", "roasted",
@@ -199,7 +222,7 @@ _FINISHED_TAGS = {
     "rice", "noodles", "pasta", "cuisine", "restaurant", "dinner", "lunch",
     "delicious", "tasty", "gourmet",
 }
-SEARCH_CACHE_VERSION = "pixabay-v2"
+SEARCH_CACHE_VERSION = "pixabay-v3"
 
 
 def _normalized_query(name: str) -> str:
@@ -323,11 +346,18 @@ def _query_tokens(text: str) -> set[str]:
     return tokens
 
 
-def _has_bad_tag(photo: dict) -> bool:
+def _has_bad_tag(photo: dict, query_tokens: set[str] | None = None) -> bool:
     text = str(photo.get("tags") or "").lower()
     if "black and white" in text or "black-and-white" in text or "blackandwhite" in text:
         return True
-    return bool(_photo_tags(photo) & _BAD_TAGS)
+    tags = _photo_tags(photo)
+    if tags & _BAD_TAGS:
+        return True
+    # 菜品本身就叫汉堡/披萨时（query 里带 burger/pizza），不该被形态黑名单误杀。
+    wrong_forms = tags & _WRONG_FORM_TAGS
+    if wrong_forms and not wrong_forms <= (query_tokens or set()):
+        return True
+    return False
 
 
 def _candidate_score(query: str, photo: dict) -> int:
@@ -341,7 +371,7 @@ def _candidate_score(query: str, photo: dict) -> int:
 def _matches_query(query: str, photo: dict, require_finished: bool = False) -> bool:
     tokens = _query_tokens(query)
     tags = _photo_tags(photo)
-    if not tokens or not tokens.issubset(tags) or _has_bad_tag(photo):
+    if not tokens or not tokens.issubset(tags) or _has_bad_tag(photo, tokens):
         return False
     if require_finished and not (tags & _FINISHED_TAGS):
         return False
@@ -410,6 +440,9 @@ async def _search_pixabay(
 
 async def _find_photo(name: str) -> dict | None:
     query = _normalized_query(name)
+    if query in _LOCAL_DISHES and query not in _LOCAL_PHOTO_OK:
+        # 已知对不上的本地菜：直接不出图，比配一张别的菜更体面。
+        return None
     variants = _query_variants(query)
     if not variants:
         return None

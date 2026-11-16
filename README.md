@@ -37,6 +37,15 @@ AMAP_KEY=你的高德Web服务Key
 
 推荐菜谱配图优先读取 `recipe_photos` 表中的国内 OSS/COS 图片目录；目录没有匹配时，本地开发可以用 Pixabay API 临时回退搜索。申请地址：`https://pixabay.com/api/docs/`。将 Pixabay API Key 填入被 Git 忽略的 `.env` 中的 `PIXABAY_API_KEY` 并重启应用；图片由后端下载、同源代理并缓存，页面显示 Pixabay 来源署名。搜索结果不够相关、未配置 Key 或图片服务暂不可用时，页面保持纯文字，不显示明显不相关图片。正式部署建议把已授权图片上传 OSS/COS 后录入目录，不依赖海外搜索服务。
 
+商洛本地菜在图片库里基本找不到对应照片，泛化搜索容易配成“另一道菜”（例如镇安腊肉炒土豆配汉堡）。这些菜默认不出图，只有实测匹配可靠的才允许用图；要给它配自己的照片，上传到 OSS/COS 后执行：
+
+```bash
+python scripts/add_recipe_photo.py "镇安腊肉炒土豆" "https://xxx.oss-cn-shanghai.aliyuncs.com/dishes/zhenan.webp"
+python scripts/add_recipe_photo.py --list
+```
+
+写入后即刻生效，无需重启服务。
+
 `/docs` and `/openapi.json` remain public for local development. Anyone who can reach them can inspect the API contract; do not expose them to an untrusted network.
 
 ## Docker 部署（Ubuntu 服务器）
