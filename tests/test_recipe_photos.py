@@ -507,42 +507,15 @@ def test_dish_named_after_form_keeps_its_tag():
     assert recipe_photos._matches_query("beef burger", photo) is True
 
 
-def test_local_dish_without_curated_photo_skips_search(monkeypatch):
+def test_local_dishes_never_use_stock_photos(monkeypatch):
     async def boom(*args, **kwargs):
         raise AssertionError("本地菜不应发起 Pixabay 搜索")
 
     monkeypatch.setattr(recipe_photos, "_search_pixabay", boom)
 
     import asyncio
-    assert asyncio.run(recipe_photos._find_photo("镇安腊肉炒土豆")) is None
-
-
-def test_local_dish_with_curated_match_still_searches(monkeypatch):
-    class FakeResponse:
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return {"hits": [{
-                "largeImageURL": "https://pixabay.com/get/tofu.jpg",
-                "user": "Chef",
-                "user_id": 1,
-                "pageURL": "https://pixabay.com/photos/tofu-1/",
-                "tags": "tofu dish food asian",
-            }]}
-
-    class FakeClient:
-        async def get(self, *args, **kwargs):
-            return FakeResponse()
-
-    monkeypatch.setattr(recipe_photos, "_client_for_requests", lambda: FakeClient())
-    monkeypatch.setattr(recipe_photos, "get_settings", lambda: SimpleNamespace(pixabay_api_key="test-key"))
-
-    import asyncio
-    result = asyncio.run(recipe_photos._find_photo("洛南豆腐"))
-
-    assert result is not None
-    assert result["url"] == "https://pixabay.com/get/tofu.jpg"
+    for name in sorted(recipe_photos._LOCAL_DISHES):
+        assert asyncio.run(recipe_photos._find_photo(name)) is None
 
 
 def test_cook_dish_pool_has_image_query_for_every_dish():
@@ -551,5 +524,13 @@ def test_cook_dish_pool_has_image_query_for_every_dish():
     names = [name for name, *_ in COOK_DISHES]
     assert len(COOK_DISHES) >= 60
     assert len(names) == len(set(names)), "做饭菜库不应有重名"
+    missing = [name for name in names if not recipe_photos._dish_queries(name)]
+    assert missing == [], f"缺少配图查询映射：{missing}"
+
+
+def test_takeout_dish_pool_has_image_query_for_every_dish():
+    from app.services.decision import DISHES
+
+    names = [name for name, *_ in DISHES]
     missing = [name for name in names if not recipe_photos._dish_queries(name)]
     assert missing == [], f"缺少配图查询映射：{missing}"

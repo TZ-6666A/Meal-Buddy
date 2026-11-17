@@ -112,18 +112,18 @@ _FOOD_WORDS = {
 }
 _DISH_WORDS = {
     "宫保鸡丁": "kung pao chicken", "宫爆鸡丁": "kung pao chicken", "麻婆豆腐": "mapo tofu",
-    "红烧肉": ("braised pork belly", "pork belly"), "糖醋里脊": ("sweet and sour pork", "sweet sour pork"), "鱼香肉丝": "yu xiang pork",
+    "红烧肉": ("braised pork belly", "pork belly"), "糖醋里脊": ("sweet and sour pork", "sweet sour pork"), "鱼香肉丝": ("sichuan pork", "pork stir fry"),
     "排骨饭": "pork ribs", "可乐排骨饭": "pork ribs", "可乐排骨": "pork ribs",
     "披萨": "pizza", "披萨饭": "pizza", "黄焖鸡米饭": "chicken rice", "鸡米饭": "chicken rice",
-    "猪脚饭": "pork trotters rice", "猪蹄饭": "pork trotters rice", "盐煎肉盖饭": "pork belly rice",
+    "猪脚饭": ("pork rice", "braised pork rice"), "猪蹄饭": "pork trotters rice", "盐煎肉盖饭": "pork belly rice",
     "菠萝咕咾肉饭": "sweet and sour pork", "菠萝咕噜肉饭": "sweet and sour pork",
     "咕咾肉": "sweet and sour pork", "咕噜肉": "sweet and sour pork", "糖醋肉": "sweet and sour pork",
     "番茄炒蛋": "tomato egg", "西红柿炒鸡蛋": "tomato egg", "无油豆腐蒸蛋": "steamed tofu egg",
     "鳗鱼饭": ("eel rice", "unadon", "unagi don"), "鳗鱼": ("grilled eel", "unagi", "eel"),
     "红烧肉盖饭": ("pork belly rice", "braised pork rice", "roasted pork rice"), "红烧肉饭": ("pork belly rice", "braised pork rice"),
     "卤肉饭": ("braised pork rice", "pork rice", "lu rou fan"),
-    "糖醋里脊盖饭": ("sweet and sour pork rice", "sweet sour pork rice"),
-    "糖醋里脊饭": ("sweet and sour pork rice", "sweet sour pork rice"),
+    "糖醋里脊盖饭": ("sweet and sour pork", "fried pork"),
+    "糖醋里脊饭": ("sweet and sour pork", "fried pork"),
     "蜜汁叉烧饭": ("char siu rice", "bbq pork rice", "roast pork rice"), "叉烧饭": ("char siu rice", "bbq pork rice", "roast pork rice"),
     "叉烧": ("char siu", "bbq pork", "roast pork"),
     "牛肉饭": ("gyudon", "beef rice bowl", "beef rice"), "牛丼": ("gyudon", "beef rice bowl", "beef rice"),
@@ -147,7 +147,7 @@ _DISH_WORDS = {
     "皮蛋瘦肉粥": ("congee", "rice porridge"), "粥": ("porridge", "congee"),
     "海南鸡饭": ("hainanese chicken rice", "chicken rice"),
     "猪排饭": ("pork cutlet rice", "tonkatsu"), "鸡排饭": ("chicken cutlet rice",),
-    "煲仔饭": ("claypot rice",), "石锅拌饭": ("bibimbap",), "蛋包饭": ("omurice",),
+    "煲仔饭": ("clay pot rice", "rice bowl"), "石锅拌饭": ("bibimbap",), "蛋包饭": ("omurice",),
     "三明治": ("sandwich",), "热狗": ("hot dog",), "墨西哥卷": ("taco", "burrito"),
     "天妇罗": ("tempura",), "寿喜锅": ("sukiyaki",), "关东煮": ("oden",), "泡菜": ("kimchi",),
     "烤鸭": ("roast duck", "peking duck"), "羊肉串": ("lamb skewers", "kebab"),
@@ -168,7 +168,7 @@ _DISH_WORDS = {
     "烩菜": ("vegetable stew", "stewed vegetables", "braised vegetables"),
     "商洛柿饼": ("dried persimmon", "persimmon"), "柿饼": ("dried persimmon", "persimmon"),
     "冒菜": ("malatang", "spicy soup"), "紫菜蛋花汤": ("egg soup", "seaweed soup"),
-    "冬瓜排骨汤": ("pork rib soup", "winter melon soup"),
+    "冬瓜排骨汤": ("pork soup", "rib soup"),
     "香菇滑鸡": ("chicken mushroom", "mushroom chicken"),
     "清蒸鲈鱼": ("steamed fish", "steamed sea bass"), "虾仁蒸蛋": ("steamed egg", "shrimp egg"),
     # 家常小炒：泛化搜索容易落到食材/菜市场，这里都给成品菜查询。
@@ -197,30 +197,68 @@ _DISH_WORDS = {
     "黑椒牛柳": ("beef dish", "black pepper beef"), "洋葱炒牛肉": ("beef dish", "beef onion"),
     "西兰花炒虾仁": ("broccoli shrimp", "shrimp dish"), "番茄龙利鱼": ("fish fillet", "tomato fish"),
     "蒜蓉粉丝蒸娃娃菜": ("steamed cabbage", "napa cabbage"), "剁椒蒸鱼": ("steamed fish", "fish dish"),
-    "萝卜排骨汤": ("pork rib soup", "radish soup"), "玉米排骨汤": ("pork rib soup", "corn soup"),
-    "山药排骨汤": ("pork rib soup", "yam soup"), "白菜豆腐汤": ("tofu soup", "cabbage soup"),
+    "萝卜排骨汤": ("pork soup", "rib soup"), "玉米排骨汤": ("pork soup", "rib soup"),
+    "山药排骨汤": ("pork soup", "rib soup"), "白菜豆腐汤": ("tofu soup", "cabbage soup"),
     "菌菇汤": ("mushroom soup", "mushroom dish"), "鲫鱼豆腐汤": ("fish soup", "tofu soup"),
     "西葫芦炒鸡蛋": ("scrambled eggs", "zucchini"), "凉拌海带丝": ("seaweed salad", "seaweed dish"),
     "红烧茄子": ("braised eggplant", "eggplant dish"), "水煮肉片": ("spicy pork", "pork dish"),
     "蒜蓉茄子": ("eggplant dish", "steamed eggplant"), "酸辣汤": ("hot and sour soup", "soup"),
     "板栗烧鸡": ("chicken stew", "braised chicken"), "粉蒸肉": ("steamed pork", "pork dish"),
+    # 外卖/下馆子常见菜：补上具体查询，避免退化成泛化搜索。
+    "酱爆鸡丁饭": ("chicken rice", "chicken dish"), "鸭腿饭": ("duck rice", "roast duck rice"),
+    "排骨年糕": ("pork rib dish", "pork ribs"), "辣子鸡丁饭": ("spicy chicken", "chicken rice"),
+    "剁椒鱼头饭": ("fish head", "steamed fish"), "照烧鸡腿饭": ("teriyaki chicken", "chicken rice"), "照烧鸡排饭": ("teriyaki chicken", "chicken rice"),
+    "大盘鸡配面": ("chicken stew", "braised chicken"), "重庆小面": ("spicy noodles", "chinese noodles"),
+    "猪脚面": ("pork noodles", "pork trotter"), "番茄鸡蛋面": ("tomato egg noodles", "noodles"),
+    "酸汤水饺": ("dumpling soup", "dumplings"), "鸡丝荞麦面": ("soba noodles", "cold noodles"),
+    "葱油拌面": ("chinese noodles", "noodles"), "清汤面配青菜": ("noodle soup", "noodles"),
+    "鸡丝凉面": ("cold noodles", "noodles"), "牛肉粉丝汤": ("beef noodle soup", "beef soup"),
+    "鸡蛋灌饼": ("jianbing", "pancake"), "烤鸡胸配时蔬": ("grilled chicken", "chicken breast"),
+    "香煎三文鱼配芦笋": ("grilled salmon", "salmon"), "白切鸡拼盘": ("poached chicken", "chicken dish"),
+    "口水鸡配黄瓜": ("chicken salad", "chicken dish"), "茶叶蛋配无糖豆浆": ("tea egg", "soy milk"),
+    "蒜蓉油麦菜配煎蛋": ("leafy vegetable", "fried egg"), "炒河粉": ("fried noodles", "rice noodles"),
+    "双层鸡肉堡套餐": ("chicken burger", "burger"), "鸡肉卷饼": ("chicken wrap", "wrap"),
+    "红豆汤配全麦面包": ("red bean soup", "bread"), "梅菜扣肉饭": ("braised pork", "pork rice"),
+    "红烧狮子头饭": ("pork meatball", "meatballs"), "香辣鸡翅饭": ("chicken wings", "chicken rice"),
+    "奥尔良烤鸡饭": ("roast chicken", "chicken rice"), "红烧大排饭": ("pork chop", "braised pork"),
+    "萝卜牛腩饭": ("beef stew", "beef rice"), "金汤肥牛饭": ("beef rice", "beef dish"),
+    "番茄肥牛饭": ("beef tomato", "beef rice"), "亲子丼": ("oyakodon", "chicken egg rice"),
+    "烧鹅饭": ("roast goose", "roast duck rice"), "白切鸡饭": ("poached chicken", "chicken rice"),
+    "盐焗鸡饭": ("salt baked chicken", "chicken rice"), "手撕鸡饭": ("shredded chicken", "chicken rice"),
+    "藤椒鸡饭": ("spicy chicken", "chicken rice"), "滑蛋虾仁饭": ("shrimp rice", "shrimp egg rice"),
+    "榨菜肉丝汤饭": ("rice soup", "pork rice soup"), "羊肉抓饭": ("lamb rice", "pilaf"),
+    "芝士焗饭": ("baked rice", "cheese rice"), "刀削面": ("chinese noodles", "knife cut noodles"),
+    "茄子肉丁面": ("eggplant noodles", "noodles"), "西红柿鸡蛋打卤面": ("tomato egg noodles", "noodles"),
+    "肥肠面": ("pork noodles", "pork intestine"), "担担面": ("dan dan noodles", "spicy noodles"),
+    "甜水面": ("chinese noodles", "noodles"), "宜宾燃面": ("spicy noodles", "chinese noodles"),
+    "油泼面": ("chinese noodles", "biang biang noodles"), "岐山臊子面": ("chinese noodles", "noodles"),
+    "羊肉泡馍": ("lamb soup", "bread soup"), "鸡杂面": ("chicken noodles", "noodles"),
+    "肥肠粉": ("rice noodles", "pork intestine"), "红油抄手": ("wonton", "chili wonton"),
+    "牛肉板面": ("beef noodles", "noodle soup"), "河南烩面": ("noodle soup", "chinese noodles"),
+    "豆角焖面": ("braised noodles", "noodles"), "什锦炒面": ("fried noodles", "chow mein"),
+    "朝鲜冷面": ("cold noodles", "korean noodles"), "桂林米粉": ("rice noodles", "guilin noodles"),
+    "新疆炒米粉": ("fried rice noodles", "rice noodles"), "砂锅土豆粉": ("potato noodles", "claypot noodles"),
+    "番茄肥牛面": ("beef noodles", "tomato noodles"), "意大利肉酱面": ("spaghetti bolognese", "spaghetti"),
+    "肠粉": ("rice noodle roll", "cheung fun"), "毛血旺": ("sichuan dish", "spicy soup"),
+    "蒜蓉粉丝虾": ("garlic shrimp", "shrimp"), "辣炒花蛤": ("clams", "clam dish"),
+    "盐酥鸡": ("fried chicken", "popcorn chicken"), "酱牛肉": ("braised beef", "beef slices"),
+    "卤味拼盘": ("braised meat", "chinese food"), "无骨鸡爪": ("chicken feet", "chicken dish"),
+    "麻辣拌": ("spicy salad", "malatang"), "酱大骨": ("pork bone", "braised pork"),
+    "冬阴功汤": ("tom yum soup", "thai soup"), "上汤娃娃菜": ("napa cabbage", "cabbage soup"),
+    "白灼菜心": ("bok choy", "blanched vegetables"), "豆浆油条": ("fried dough", "youtiao"),
+    "烧麦": ("shaomai", "dumplings"), "手抓饼": ("flatbread", "pancake"),
+    "烤冷面": ("grilled noodles", "pancake"), "钟水饺": ("dumplings", "chili dumplings"),
 }
 _COOKING_WORDS = {
     "蒸": "steamed", "炒": "stir fry", "煎": "pan fried", "烤": "roasted", "汤": "soup",
     "粥": "porridge", "炖": "stew", "焖": "braised", "凉拌": "cold salad",
 }
 
-# 商洛本地菜在图库里几乎找不到对应照片，泛化匹配很容易配成“另一道菜”。
-# 这里采用白名单：只有实测匹配得住的才允许出图，其余宁可不显示图片。
+# 商洛本地菜在图库里找不到对应照片，泛化匹配只会配成“另一道菜”。
+# 这些菜一律不出图，等人工把成品图上传 OSS 后写进 recipe_photos 目录再用。
 _LOCAL_DISHES = {
     "商洛洋芋糍粑", "商洛搅团", "商洛浆水面", "洛南豆腐",
     "洛南核桃馍", "镇安腊肉炒土豆", "商州烩菜配米饭", "商洛柿饼",
-}
-_LOCAL_PHOTO_OK = {
-    "商洛洋芋糍粑",  # 洋芋糍粑 ≈ mashed potato，形态一致
-    "商洛浆水面",    # noodle soup，形态一致
-    "洛南豆腐",      # tofu dish，形态一致
-    "商州烩菜配米饭",  # stew，形态一致（配米饭另说）
 }
 
 # 这些标签通常意味着“市场/摊位/生食材/风景/黑白片”，不是成品菜。
@@ -231,7 +269,10 @@ _BAD_TAGS = {
     "display", "counter", "crate", "ingredient", "ingredients",
     "field", "paddy", "harvest", "farm", "farmer", "animal", "wildlife", "underwater",
     "sea", "ocean", "lake", "river", "landscape",
-    "live", "kitchen", "chef", "menu",
+    "live", "chef", "menu",
+    # AI 生成/3D 渲染的"菜"看着完美但不真实，不如不出图。
+    "ai", "generated", "digital", "render", "rendering", "mockup",
+    "illustration", "cartoon", "drawing",
 }
 # 西式快餐/甜点等"菜品形态"标签：家常中餐基本不可能是这些，
 # 但只要标签里同时有 bacon、potato 就先被搜出来（例如汉堡）。
@@ -473,8 +514,8 @@ async def _search_pixabay(
 
 async def _find_photo(name: str) -> dict | None:
     query = _normalized_query(name)
-    if query in _LOCAL_DISHES and query not in _LOCAL_PHOTO_OK:
-        # 已知对不上的本地菜：直接不出图，比配一张别的菜更体面。
+    if query in _LOCAL_DISHES:
+        # 本地菜在公开图库没有可靠对应，统一不出图，避免配成别的菜。
         return None
     variants = _query_variants(query)
     if not variants:
