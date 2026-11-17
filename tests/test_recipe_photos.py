@@ -469,6 +469,18 @@ def test_bundled_dish_photo_file_is_served(client):
     assert "immutable" in response.headers["cache-control"]
 
 
+def test_every_bundled_photo_file_is_served(client):
+    from pathlib import Path
+
+    photo_dir = Path(__file__).parents[1].joinpath("app", "web", "dish-photos")
+    assert recipe_photos._BUNDLED_PHOTOS
+    for name, filename in recipe_photos._BUNDLED_PHOTOS.items():
+        assert photo_dir.joinpath(filename).is_file(), f"{name} 缺少图片文件 {filename}"
+        response = client.get(f"/dish-photos/{filename}")
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "image/jpeg"
+
+
 def test_bundled_dish_photo_info_reports_found(client):
     response = client.get("/api/v1/recipe-photo-info", params={"name": "番茄牛腩"})
 
