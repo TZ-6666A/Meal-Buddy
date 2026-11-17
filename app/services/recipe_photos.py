@@ -271,6 +271,20 @@ _LOCAL_DISHES = {
 # 图库里只有形态相近但其实是另一道菜的图（肠粉只搜到越南米纸卷），同样不出图。
 _NO_PHOTO_DISHES = {"肠粉", "番茄龙利鱼"}
 
+# 随仓库一起部署的自带成品图：人工挑选或本地生成，优先于 Pixabay 搜索。
+# 文件放在 app/web/dish-photos/，由 app/main.py 的 /dish-photos/{filename} 提供。
+# 数据库 recipe_photos 目录仍然优先，用来放 OSS/COS 上的图。
+_BUNDLED_PHOTOS = {
+    "番茄豆腐汤": "tomato-tofu-soup.jpg",
+    "番茄鸡蛋汤": "tomato-egg-soup.jpg",
+    "番茄龙利鱼": "tomato-fish-fillet.jpg",
+    "番茄牛腩": "tomato-beef-brisket.jpg",
+    "番茄牛腩饭": "tomato-beef-rice.jpg",
+    "番茄牛腩汤饭": "tomato-beef-soup-rice.jpg",
+    "番茄鸡蛋面": "tomato-egg-noodles.jpg",
+    "西红柿鸡蛋打卤面": "tomato-egg-noodles-sauce.jpg",
+}
+
 # 这些标签通常意味着“市场/摊位/生食材/风景/黑白片”，不是成品菜。
 _BAD_TAGS = {
     "blackandwhite", "monochrome", "grayscale", "greyscale", "noir",
@@ -664,15 +678,20 @@ def _empty_photo_info() -> dict:
     }
 
 
+def bundled_photo_url(name: str) -> str:
+    filename = _BUNDLED_PHOTOS.get(_normalized_query(name))
+    return f"/dish-photos/{filename}" if filename else ""
+
+
 def catalog_url(db: Session, name: str) -> str:
-    """只查数据库目录，不触发 Pixabay 搜索；供图片代理优先返回 OSS 图片。"""
+    """查数据库目录和自带图，不触发 Pixabay 搜索；供图片代理优先返回成品图。"""
     normalized_name = _normalized_query(name)
     photo = db.scalar(
         select(RecipePhoto).where(RecipePhoto.recipe_name == normalized_name)
     )
     if photo is not None and _safe_catalog_url(photo.image_url):
         return photo.image_url
-    return ""
+    return bundled_photo_url(normalized_name)
 
 
 async def photo_info(db: Session, name: str) -> dict:
@@ -690,6 +709,19 @@ async def photo_info(db: Session, name: str) -> dict:
             "photographer_url": photo.credit_url if _safe_catalog_url(photo.credit_url) else "",
             "credit_name": photo.credit_name,
             "credit_url": photo.credit_url if _safe_catalog_url(photo.credit_url) else "",
+        }
+
+    bundled = bundled_photo_url(normalized_name)
+    if bundled:
+        return {
+            "found": True,
+            "image_url": bundled,
+            "preview_url": bundled,
+            "image_alt": f"{normalized_name}成品图片",
+            "photographer": "",
+            "photographer_url": "",
+            "credit_name": "",
+            "credit_url": "",
         }
 
     pixabay_photo = await _find_photo(normalized_name)

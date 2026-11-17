@@ -48,6 +48,8 @@ python scripts/add_recipe_photo.py --list
 
 写入后即刻生效，无需重启服务。
 
+也可以把成品图直接放进仓库：图片存到 `app/web/dish-photos/`（建议 1280px、JPEG），在 `app/services/recipe_photos.py` 的 `_BUNDLED_PHOTOS` 里加一行 `"菜名": "文件名.jpg"`，重启后由 `/dish-photos/<文件名>` 提供。自带图优先于 Pixabay 搜索，数据库 `recipe_photos` 目录又优先于自带图。
+
 `/docs` and `/openapi.json` remain public for local development. Anyone who can reach them can inspect the API contract; do not expose them to an untrusted network.
 
 ## Docker 部署（Ubuntu 服务器）

@@ -4,11 +4,12 @@ from pathlib import Path
 import gzip
 import hashlib
 import logging
+import re
 import time
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 
 from app.accounts import ensure_bootstrap
 from app.api import admin_router, public_router, router
@@ -98,10 +99,28 @@ app.include_router(public_router)
 app.include_router(admin_router)
 app.include_router(router, dependencies=[Depends(get_current_user)])
 
+DISH_PHOTO_DIR = Path(__file__).with_name("web").joinpath("dish-photos")
+_DISH_PHOTO_NAME = re.compile(r"[a-z0-9-]+\.jpg")
+
 WEB_PAGE_PATH = Path(__file__).with_name("web").joinpath("index.html")
 _WEB_PAGE_BYTES = WEB_PAGE_PATH.read_bytes()
 _WEB_PAGE_GZIP = gzip.compress(_WEB_PAGE_BYTES, compresslevel=9, mtime=0)
 _WEB_PAGE_ETAG = '"' + hashlib.sha256(_WEB_PAGE_BYTES).hexdigest()[:16] + '"'
+
+
+@app.get("/dish-photos/{filename}", include_in_schema=False)
+def dish_photo(filename: str) -> FileResponse:
+    """自托管的中餐成品图（人工挑选或本地生成后提交到仓库），不走 Pixabay。"""
+    if not _DISH_PHOTO_NAME.fullmatch(filename):
+        raise HTTPException(status_code=404)
+    path = DISH_PHOTO_DIR.joinpath(filename)
+    if not path.is_file():
+        raise HTTPException(status_code=404)
+    return FileResponse(
+        path,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "public, max-age=604800, immutable"},
+    )
 
 
 @app.get("/", include_in_schema=False)

@@ -449,6 +449,58 @@ def test_photo_endpoint_redirects_catalog_image(client):
     )
 
 
+def test_bundled_dish_photo_is_redirected(client):
+    response = client.get(
+        "/api/v1/recipe-photo",
+        params={"name": "番茄豆腐汤"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 307
+    assert response.headers["location"] == "/dish-photos/tomato-tofu-soup.jpg"
+
+
+def test_bundled_dish_photo_file_is_served(client):
+    response = client.get("/dish-photos/tomato-tofu-soup.jpg")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/jpeg"
+    assert response.content[:2] == b"\xff\xd8"
+    assert "immutable" in response.headers["cache-control"]
+
+
+def test_bundled_dish_photo_info_reports_found(client):
+    response = client.get("/api/v1/recipe-photo-info", params={"name": "番茄牛腩"})
+
+    body = response.json()
+    assert body["found"] is True
+    assert body["image_url"] == "/dish-photos/tomato-beef-brisket.jpg"
+
+
+def test_database_catalog_overrides_bundled_photo(client):
+    with client.testing_session() as db:
+        db.add(RecipePhoto(
+            recipe_name="番茄牛腩",
+            image_url="https://fandazi.oss-cn-shanghai.aliyuncs.com/dishes/brisket.jpg",
+        ))
+        db.commit()
+
+    response = client.get(
+        "/api/v1/recipe-photo",
+        params={"name": "番茄牛腩"},
+        follow_redirects=False,
+    )
+
+    assert response.headers["location"] == (
+        "https://fandazi.oss-cn-shanghai.aliyuncs.com/dishes/brisket.jpg"
+    )
+
+
+def test_dish_photo_route_rejects_unknown_files(client):
+    assert client.get("/dish-photos/missing.jpg").status_code == 404
+    assert client.get("/dish-photos/..%2Findex.html").status_code == 404
+
+
 def test_photo_endpoint_passes_preview_flag(client, monkeypatch):
     seen = {}
 
