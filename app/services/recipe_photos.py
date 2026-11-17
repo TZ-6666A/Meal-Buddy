@@ -118,7 +118,8 @@ _DISH_WORDS = {
     "猪脚饭": ("pork rice", "braised pork rice"), "猪蹄饭": "pork trotters rice", "盐煎肉盖饭": "pork belly rice",
     "菠萝咕咾肉饭": "sweet and sour pork", "菠萝咕噜肉饭": "sweet and sour pork",
     "咕咾肉": "sweet and sour pork", "咕噜肉": "sweet and sour pork", "糖醋肉": "sweet and sour pork",
-    "番茄炒蛋": "tomato egg", "西红柿炒鸡蛋": "tomato egg", "无油豆腐蒸蛋": "steamed tofu egg",
+    "番茄炒蛋": ("tomato scrambled egg", "tomato egg"),
+    "西红柿炒鸡蛋": ("tomato scrambled egg", "tomato egg"), "无油豆腐蒸蛋": "steamed tofu egg",
     "鳗鱼饭": ("eel rice", "unadon", "unagi don"), "鳗鱼": ("grilled eel", "unagi", "eel"),
     "红烧肉盖饭": ("pork belly rice", "braised pork rice", "roasted pork rice"), "红烧肉饭": ("pork belly rice", "braised pork rice"),
     "卤肉饭": ("braised pork rice", "pork rice", "lu rou fan"),
@@ -177,7 +178,7 @@ _DISH_WORDS = {
     "手撕包菜": ("cabbage dish", "stir fried cabbage"), "清炒油麦菜": ("leafy vegetable", "stir fried greens"),
     "香菇青菜": ("mushroom vegetable", "bok choy mushroom"), "凉拌黄瓜": ("cucumber salad", "cucumber dish"),
     "蒜香虾仁": ("garlic shrimp", "shrimp dish"), "土豆炖鸡": ("chicken stew", "chicken potato stew"),
-    "番茄牛腩": ("beef stew", "beef tomato stew"), "土豆炖牛肉": ("beef stew", "beef potato stew"),
+    "番茄牛腩": ("tomato beef stew", "beef tomato stew", "beef stew"), "土豆炖牛肉": ("beef stew", "beef potato stew"),
     "小鸡炖蘑菇": ("chicken stew", "chicken mushroom stew"),
     "酸辣土豆丝": ("shredded potato", "potato dish"), "醋溜白菜": ("cabbage dish", "stir fried cabbage"),
     "蚝油生菜": ("lettuce dish", "lettuce salad"), "清炒菠菜": ("spinach dish", "spinach"),
@@ -189,14 +190,16 @@ _DISH_WORDS = {
     "白灼虾": ("boiled shrimp", "shrimp dish"), "清炒虾仁": ("shrimp dish", "sauteed shrimp"),
     "番茄鸡蛋汤": ("tomato egg soup", "egg soup"), "丝瓜蛋汤": ("egg soup", "vegetable soup"),
     "菠菜蛋花汤": ("egg soup", "spinach soup"),
-    "番茄烧豆腐": ("tomato tofu", "tofu dish"), "蒜苔炒肉": ("pork stir fry", "stir fried pork"),
+    "番茄烧豆腐": ("tomato tofu", "tofu dish"),
+    "番茄豆腐汤": ("tomato tofu soup", "tofu soup"), "西红柿炖豆腐": ("tomato tofu", "tofu soup"),
+    "蒜苔炒肉": ("pork stir fry", "stir fried pork"),
     "木须肉": ("pork stir fry", "stir fried pork"), "京酱肉丝": ("pork stir fry", "shredded pork"),
     "蚂蚁上树": ("glass noodles", "vermicelli"), "干煸豆角": ("green beans", "string beans"),
     "干锅花菜": ("cauliflower dish", "cauliflower"), "地三鲜": ("eggplant dish", "braised eggplant"),
     "鱼香茄子": ("eggplant dish", "braised eggplant"), "回锅肉": ("pork belly", "braised pork"),
     "可乐鸡翅": ("chicken wings", "braised chicken"), "红烧鸡翅": ("chicken wings", "braised chicken"),
     "黑椒牛柳": ("beef dish", "black pepper beef"), "洋葱炒牛肉": ("beef dish", "beef onion"),
-    "西兰花炒虾仁": ("broccoli shrimp", "shrimp dish"), "番茄龙利鱼": ("fish fillet", "tomato fish"),
+    "西兰花炒虾仁": ("broccoli shrimp", "shrimp dish"), "番茄龙利鱼": ("tomato fish fillet",),
     "蒜蓉粉丝蒸娃娃菜": ("steamed cabbage", "napa cabbage"), "剁椒蒸鱼": ("steamed fish", "fish dish"),
     "萝卜排骨汤": ("pork soup", "rib soup"), "玉米排骨汤": ("pork soup", "rib soup"),
     "山药排骨汤": ("pork soup", "rib soup"), "白菜豆腐汤": ("tofu soup", "cabbage soup"),
@@ -223,7 +226,7 @@ _DISH_WORDS = {
     "红烧狮子头饭": ("pork meatball", "meatballs"), "香辣鸡翅饭": ("chicken wings", "chicken rice"),
     "奥尔良烤鸡饭": ("roast chicken", "chicken rice"), "红烧大排饭": ("pork chop", "braised pork"),
     "萝卜牛腩饭": ("beef stew", "beef rice"), "金汤肥牛饭": ("beef rice", "beef dish"),
-    "番茄肥牛饭": ("beef rice", "beef bowl"), "亲子丼": ("oyakodon", "chicken egg rice"),
+    "番茄肥牛饭": ("tomato beef rice", "tomato beef bowl"), "亲子丼": ("oyakodon", "chicken egg rice"),
     "烧鹅饭": ("roast goose", "roast duck rice"), "白切鸡饭": ("poached chicken", "chicken rice"),
     "盐焗鸡饭": ("salt baked chicken", "chicken rice"), "手撕鸡饭": ("shredded chicken", "chicken rice"),
     "藤椒鸡饭": ("spicy chicken", "chicken rice"), "滑蛋虾仁饭": ("shrimp rice", "shrimp egg rice"),
@@ -239,7 +242,11 @@ _DISH_WORDS = {
     "豆角焖面": ("braised noodles", "noodles"), "什锦炒面": ("fried noodles", "chow mein"),
     "朝鲜冷面": ("cold noodles", "korean noodles"), "桂林米粉": ("rice noodles", "guilin noodles"),
     "新疆炒米粉": ("fried rice noodles", "rice noodles"), "砂锅土豆粉": ("potato noodles", "claypot noodles"),
-    "番茄肥牛面": ("beef noodles", "tomato noodles"), "意大利肉酱面": ("spaghetti bolognese", "spaghetti"),
+    "番茄肥牛面": ("tomato beef noodles", "tomato beef noodle soup"), "意大利肉酱面": ("spaghetti bolognese", "spaghetti"),
+    "西红柿鸡蛋盖饭": ("tomato egg rice", "tomato scrambled egg"), "咖喱乌冬面": ("curry udon",),
+    "咖喱牛肉饭": ("curry beef rice", "beef curry", "curry rice"),
+    "日式咖喱猪排饭": ("japanese curry rice", "katsu curry"),
+    "糖醋排骨饭": ("sweet and sour ribs", "sweet and sour pork"),
     "肠粉": ("rice noodle roll", "cheung fun", "rice roll"), "毛血旺": ("sichuan dish", "spicy soup"),
     "蒜蓉粉丝虾": ("garlic shrimp", "shrimp"), "辣炒花蛤": ("clams", "clam dish"),
     "盐酥鸡": ("fried chicken", "popcorn chicken"), "酱牛肉": ("braised beef", "beef slices"),
@@ -262,7 +269,7 @@ _LOCAL_DISHES = {
     "洛南核桃馍", "镇安腊肉炒土豆", "商州烩菜配米饭", "商洛柿饼",
 }
 # 图库里只有形态相近但其实是另一道菜的图（肠粉只搜到越南米纸卷），同样不出图。
-_NO_PHOTO_DISHES = {"肠粉"}
+_NO_PHOTO_DISHES = {"肠粉", "番茄龙利鱼"}
 
 # 这些标签通常意味着“市场/摊位/生食材/风景/黑白片”，不是成品菜。
 _BAD_TAGS = {
@@ -297,6 +304,15 @@ _BUN_FAMILY = {
     "baozi", "bun", "buns", "dumpling", "dumplings",
     "wonton", "wontons", "shaomai", "jiaozi", "potsticker", "dimsum",
 }
+# 菜名点明了主体风味时，图里也必须真有这个元素。否则就是"番茄肥牛面配清汤牛肉面"
+# 这种看着像、其实是另一道菜的图：标签里有 beef、noodle，唯独没有 tomato。
+# 每组是"任选其一即可命中"的英文标签。
+_FLAVOR_TAGS: dict[str, tuple[frozenset[str], ...]] = {
+    "番茄": (frozenset({"tomato"}),),
+    "西红柿": (frozenset({"tomato"}),),
+    "咖喱": (frozenset({"curry"}),),
+    "糖醋": (frozenset({"sweet", "sour"}),),
+}
 _COOKED_TAGS = {
     "food", "dish", "meal", "cuisine", "plate", "bowl", "cooked", "grilled", "roasted",
     "fried", "baked", "steamed", "soup", "rice", "noodles", "pasta", "curry", "barbecue",
@@ -309,7 +325,7 @@ _FINISHED_TAGS = {
     "rice", "noodles", "pasta", "cuisine", "restaurant", "dinner", "lunch",
     "delicious", "tasty", "gourmet",
 }
-SEARCH_CACHE_VERSION = "pixabay-v3"
+SEARCH_CACHE_VERSION = "pixabay-v4"
 
 
 def _normalized_query(name: str) -> str:
@@ -458,14 +474,41 @@ def _candidate_score(query: str, photo: dict) -> int:
     return len(tokens & tags) * 2 + min(len(tags & _COOKED_TAGS), 3)
 
 
-def _matches_query(query: str, photo: dict, require_finished: bool = False) -> bool:
+def _flavor_groups(name: str) -> tuple[frozenset[str], ...]:
+    """从菜名里取出必须出现的风味标签组，例如“番茄肥牛面”要求图里带 tomato。"""
+    groups: list[frozenset[str]] = []
+    for marker, required in _FLAVOR_TAGS.items():
+        if marker in name:
+            groups.extend(required)
+    return tuple(groups)
+
+
+def _flavor_variants(
+    variants: list[str], flavor_groups: tuple[frozenset[str], ...]
+) -> list[str]:
+    """剔除查询词里没有风味词的变体：它们一定搜不到带该风味的图，只会配成别的菜。"""
+    if not flavor_groups:
+        return variants
+    return [
+        variant
+        for variant in variants
+        if all(_query_tokens(variant) & group for group in flavor_groups)
+    ]
+
+
+def _matches_query(
+    query: str,
+    photo: dict,
+    require_finished: bool = False,
+    flavor_groups: tuple[frozenset[str], ...] = (),
+) -> bool:
     tokens = _query_tokens(query)
     tags = _photo_tags(photo)
     if not tokens or not tokens.issubset(tags) or _has_bad_tag(photo, tokens):
         return False
     if require_finished and not (tags & _FINISHED_TAGS):
         return False
-    return True
+    return all(tags & group for group in flavor_groups)
 
 
 def _required_score(query: str) -> int:
@@ -478,6 +521,7 @@ async def _search_pixabay(
     variants: list[str],
     key: str,
     require_finished: bool,
+    flavor_groups: tuple[frozenset[str], ...] = (),
 ) -> dict | None:
     async def search_variant(rank: int, search_query: str, per_page: int = 20) -> list[dict]:
         params = {
@@ -498,7 +542,7 @@ async def _search_pixabay(
         found: list[dict] = []
         for item in response.json().get("hits", []):
             photo = _photo_from_payload(item)
-            if photo and _matches_query(search_query, photo, require_finished):
+            if photo and _matches_query(search_query, photo, require_finished, flavor_groups):
                 photo["score"] = _candidate_score(search_query, photo)
                 photo["rank"] = rank
                 photo["query"] = search_query
@@ -537,6 +581,8 @@ async def _find_photo(name: str) -> dict | None:
         # 这些菜在公开图库没有可靠对应，统一不出图，避免配成别的菜。
         return None
     variants = _query_variants(query)
+    flavor_groups = _flavor_groups(query)
+    variants = _flavor_variants(variants, flavor_groups)
     if not variants:
         return None
     cache_key = f"{SEARCH_CACHE_VERSION}|" + "|".join(variants)
@@ -552,7 +598,13 @@ async def _find_photo(name: str) -> dict | None:
     if task is not None:
         return await asyncio.shield(task)
     task = asyncio.create_task(
-        _search_pixabay(cache_key, variants, key, not bool(_dish_queries(query)))
+        _search_pixabay(
+            cache_key,
+            variants,
+            key,
+            not bool(_dish_queries(query)),
+            flavor_groups,
+        )
     )
     _search_tasks[cache_key] = task
     try:

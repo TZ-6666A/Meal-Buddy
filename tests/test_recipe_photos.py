@@ -337,7 +337,7 @@ def test_concurrent_searches_are_coalesced(monkeypatch):
         def json(self):
             return {"hits": [{
                 "webformatURL": "https://pixabay.com/get/tomato.jpg",
-                "tags": "tomato egg food plate",
+                "tags": "tomato scrambled egg food plate",
             }]}
 
     class FakeClient:
@@ -505,6 +505,60 @@ def test_wrong_food_form_is_rejected():
 def test_dish_named_after_form_keeps_its_tag():
     photo = {"tags": "burger beef cheese food"}
     assert recipe_photos._matches_query("beef burger", photo) is True
+
+
+def test_tomato_dish_requires_tomato_in_photo():
+    # 清汤牛肉面标签有 beef/noodles，但没有番茄，不能配“番茄肥牛面”。
+    beef_noodle = {"tags": "beef noodles soup bowl meal food"}
+    assert (
+        recipe_photos._matches_query(
+            "tomato beef noodles", beef_noodle, flavor_groups=recipe_photos._flavor_groups("番茄肥牛面")
+        )
+        is False
+    )
+    tomato_noodle = {"tags": "beef noodles soup tomato bowl meal food"}
+    assert (
+        recipe_photos._matches_query(
+            "tomato beef noodles", tomato_noodle, flavor_groups=recipe_photos._flavor_groups("番茄肥牛面")
+        )
+        is True
+    )
+
+
+def test_curry_dish_requires_curry_in_photo():
+    # 咖喱牛肉饭曾配成牛丼：有 beef/rice，唯独没有咖喱。
+    gyudon = {"tags": "beef rice bowl japanese food"}
+    assert (
+        recipe_photos._matches_query(
+            "curry beef rice", gyudon, flavor_groups=recipe_photos._flavor_groups("咖喱牛肉饭")
+        )
+        is False
+    )
+    curry = {"tags": "beef rice curry bowl"}
+    assert (
+        recipe_photos._matches_query(
+            "curry beef rice", curry, flavor_groups=recipe_photos._flavor_groups("咖喱牛肉饭")
+        )
+        is True
+    )
+
+
+def test_plain_dishes_have_no_flavor_requirement():
+    assert recipe_photos._flavor_groups("红烧牛肉面") == ()
+
+
+def test_variants_without_flavor_word_are_dropped():
+    groups = recipe_photos._flavor_groups("番茄肥牛面")
+    variants = ["tomato beef noodles", "beef noodles", "tomato beef noodle soup"]
+    assert recipe_photos._flavor_variants(variants, groups) == [
+        "tomato beef noodles",
+        "tomato beef noodle soup",
+    ]
+    # 该菜现在的映射本身也只剩带 tomato 的查询。
+    assert recipe_photos._query_variants("番茄肥牛面") == [
+        "tomato beef noodles",
+        "tomato beef noodle soup",
+    ]
 
 
 def test_local_dishes_never_use_stock_photos(monkeypatch):
