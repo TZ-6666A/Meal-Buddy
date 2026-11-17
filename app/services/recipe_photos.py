@@ -286,6 +286,7 @@ _BUNDLED_PHOTOS = {
     "咖喱乌冬面": "curry-udon.jpg",
     "肠粉": "rice-noodle-roll.jpg",
     "番茄肥牛面": "tomato-beef-noodles.jpg",
+    "豆浆油条": "soy-milk-youtiao.jpg",
 }
 
 # 这些标签通常意味着“市场/摊位/生食材/风景/黑白片”，不是成品菜。
