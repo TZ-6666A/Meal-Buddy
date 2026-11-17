@@ -543,3 +543,13 @@ def test_local_dish_with_curated_match_still_searches(monkeypatch):
 
     assert result is not None
     assert result["url"] == "https://pixabay.com/get/tofu.jpg"
+
+
+def test_cook_dish_pool_has_image_query_for_every_dish():
+    from app.services.decision import COOK_DISHES
+
+    names = [name for name, *_ in COOK_DISHES]
+    assert len(COOK_DISHES) >= 60
+    assert len(names) == len(set(names)), "做饭菜库不应有重名"
+    missing = [name for name in names if not recipe_photos._dish_queries(name)]
+    assert missing == [], f"缺少配图查询映射：{missing}"
