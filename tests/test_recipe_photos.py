@@ -534,3 +534,14 @@ def test_takeout_dish_pool_has_image_query_for_every_dish():
     names = [name for name, *_ in DISHES]
     missing = [name for name in names if not recipe_photos._dish_queries(name)]
     assert missing == [], f"缺少配图查询映射：{missing}"
+
+
+def test_bread_form_is_rejected_for_stir_fry():
+    # 夹肉面包虽然带 pork/pepper/stir/fry 标签，但不是青椒肉丝。
+    photo = {"tags": "pork pepper stir fry bread bakery bun cooked"}
+    assert recipe_photos._matches_query("pepper pork stir fry", photo) is False
+
+
+def test_baozi_allows_dumpling_family_tag():
+    photo = {"tags": "baozi dumpling steamed chinese food"}
+    assert recipe_photos._matches_query("baozi", photo) is True
