@@ -5,6 +5,8 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass, field
 
+from app.services.cook_lessons import ingredient_evidence
+
 MAX_DRAWS = 5
 
 
@@ -89,12 +91,15 @@ BLOCK_ALIASES: dict[str, tuple[str, ...]] = {
     "鸭肉": ("鸭肉", "烤鸭", "鸭腿", "板鸭", "鸭血"),
     "鱼": ("鱼", "鲈鱼", "三文鱼", "鱼头", "鱼片", "鱼丸"),
     "虾": ("虾", "虾仁", "虾滑"),
-    "海鲜": ("海鲜", "虾", "蟹", "贝", "蛤", "鱿鱼", "生蚝", "三文鱼", "鲈鱼", "鱼"),
+    "海鲜": ("海鲜", "虾", "蟹", "贝", "蛤", "鱿鱼", "生蚝", "蚝油", "三文鱼", "鲈鱼", "鱼"),
     "辣": ("辣", "麻辣", "香辣", "酸辣", "水煮", "剁椒", "泡椒", "椒麻", "藤椒"),
     "香菜": ("香菜", "芫荽"),
     "花生": ("花生", "花生米", "花生酱"),
     "鸡蛋": ("鸡蛋", "蛋", "炒蛋", "蒸蛋", "蛋花", "蛋饺", "卤蛋", "煎蛋", "蛋饼", "滑蛋", "蛋包"),
-    "牛奶": ("牛奶", "芝士", "奶油", "黄油", "奶盖", "酸奶"),
+    "牛奶": ("牛奶", "芝士", "奶酪", "奶油", "黄油", "奶盖", "酸奶"),
+    "大豆": ("大豆", "黄豆", "豆腐", "豆浆", "香干", "腐竹", "豆皮", "豆豉", "豆瓣", "生抽", "老抽", "酱油", "甜面酱"),
+    "芝麻": ("芝麻", "麻酱", "香油"),
+    "小麦": ("小麦", "面粉", "面条", "面包", "馒头", "饺", "馄饨", "生抽", "老抽", "酱油", "甜面酱"),
     "葱": ("葱", "葱花", "洋葱"),
     "蒜": ("蒜", "蒜蓉", "蒜香"),
 }
@@ -479,7 +484,41 @@ def expand_blocked(words: list[str] | None) -> list[str]:
 
 
 def is_blocked(name: str, blocked: list[str] | None) -> bool:
-    return any(word and word in name for word in (blocked or []))
+    """统一检查名称和已收录食材；缺少证据不代表无过敏原。"""
+    banned = expand_blocked(blocked)
+    if not banned:
+        return False
+    texts = (name, *ingredient_evidence(name))
+    return any(word in text for word in banned for text in texts)
+
+
+def condition_conflicts(name: str, condition: str,
+                        ingredients: list[str] | None = None,
+                        steps: list[str] | None = None) -> bool:
+    """落实既有提示词里的明确禁项，不推断用量、营养值或临床适宜性。
+
+    控糖：避免加糖；低盐：避免腌制食品。健身的“优先”仍是排序偏好。
+    有实际菜谱时检查实际食材/步骤，否则检查本地菜库证据。
+    """
+    foods = ingredient_evidence(name) if ingredients is None else ingredients
+    texts = (name, *foods, *(steps or []))
+    if condition == "diabetes":
+        sugars = ("白糖", "冰糖", "砂糖", "红糖", "蜂蜜", "糖浆")
+        sweet_preparations = ("糖醋", "糖拌", "蜜汁", "可乐", "加糖", "撒糖", "拌糖", "放糖")
+        return "糖" in foods or any(
+            word in text for word in sugars + sweet_preparations for text in texts
+        )
+    if condition == "hypertension":
+        preserved = ("腌制", "腌菜", "咸菜", "榨菜", "腊肉", "腊肠", "酸菜", "泡菜", "咸鱼", "咸蛋")
+        return any(word in text for word in preserved for text in texts)
+    return False
+
+
+def takeout_condition_allows(name: str, condition: str) -> bool:
+    """本地/城市外卖路径与 ranked 共用现有健康白名单，未知菜不放行。"""
+    return condition not in SAFE_CATALOG or any(
+        name == row[0] for row in SAFE_CATALOG[condition]
+    )
 
 
 def is_recent(name: str, recent: list[str] | None) -> bool:
@@ -533,7 +572,8 @@ def ranked(mode: str, answers: dict[str, str], condition: str,
         for name, styles, need, tags in COOK_DISHES:
             if need > minutes or name in skip:
                 continue
-            if is_blocked(name, banned) or is_recent(name, recent):
+            if (is_blocked(name, banned) or is_recent(name, recent)
+                    or condition_conflicts(name, condition)):
                 continue
             score = 3 if style and style in styles else 0
             score += 2 if need <= max(minutes - 15, 15) else 0

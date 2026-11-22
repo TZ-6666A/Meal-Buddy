@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import pytest
+
 from app.services import nearby
 from app.services.nearby import choose, fetch_location_label
 from app.api import _no_match_suggestion
@@ -119,7 +121,7 @@ def test_ai_city_dishes_enter_recommendation(client, monkeypatch):
         lambda: NS(daily_token_budget=0, amap_key="test-key"),
     )
     monkeypatch.setattr(
-        city_dishes, "prefetch", lambda city, settings=None: None
+        city_dishes, "prefetch", lambda city, settings=None, **kwargs: None
     )
     monkeypatch.setattr(
         city_dishes, "cached",
@@ -141,6 +143,90 @@ def test_ai_city_dishes_enter_recommendation(client, monkeypatch):
     body = response.json()
     assert "老北京炸酱面" in body["result"]
     assert "北京市当地人常吃" in " ".join(body["reasons"])
+
+
+@pytest.mark.parametrize("condition", ["fitness", "diabetes", "hypertension"])
+def test_nearby_health_filter_reuses_takeout_catalog(condition):
+    from app.services.decision import SAFE_CATALOG
+
+    safe = SAFE_CATALOG[condition][0][0]
+    places = [
+        {"dish": name, "region": "测试市", "source": "ai-city"}
+        for name in ("糖拌番茄", "腊肉饭", safe)
+    ]
+    assert choose(places, {}, [], [], condition=condition)["choice"] == safe
+    assert nearby.alternatives(places, {}, [], [], condition=condition) == [safe]
+    assert choose(places, {}, [], [], condition="")["choice"] == "糖拌番茄"
+    assert choose(places[:2], {}, [], [], condition=condition) is None
+
+
+@pytest.mark.parametrize("condition", ["fitness", "diabetes", "hypertension"])
+def test_city_api_cannot_bypass_health_condition(client, monkeypatch, condition):
+    from app.services.decision import SAFE_CATALOG
+
+    monkeypatch.setattr("app.services.city_dishes.prefetch", lambda *a, **kw: None)
+    monkeypatch.setattr("app.services.city_dishes.cached", lambda label: [
+        {"dish": "糖拌番茄", "region": "测试市", "source": "ai-city"},
+        {"dish": "腊肉饭", "region": "测试市", "source": "ai-city"},
+    ])
+    session_id = client.post(
+        f"/api/v1/decisions?mode=takeout&condition={condition}"
+    ).json()["session_id"]
+    for option in ("any", "any", "simple"):
+        assert client.post(f"/api/v1/decisions/{session_id}/answer?option={option}").status_code == 200
+    response = client.post(f"/api/v1/decisions/{session_id}/city", json={"city": "测试"})
+    assert response.status_code == 200
+    data = response.json()
+    allowed = {row[0] for row in SAFE_CATALOG[condition]}
+    assert data["selected_dish"] in allowed
+    assert set(data["alternatives"]) <= allowed
+
+
+@pytest.mark.parametrize("endpoint", ["city", "location"])
+@pytest.mark.parametrize("denial", ["budget", "rate", "saturated"])
+def test_location_prefetch_denial_keeps_local_fallback(client, monkeypatch, endpoint, denial):
+    from app.services import city_dishes
+
+    city_dishes.reset_cache()
+    admitted = []
+    real_prefetch = city_dishes.prefetch
+
+    def tracked_prefetch(*args, **kwargs):
+        result = real_prefetch(*args, **kwargs)
+        admitted.append(result)
+        return result
+
+    monkeypatch.setattr(city_dishes, "prefetch", tracked_prefetch)
+    monkeypatch.setattr("app.api.get_settings", lambda: SimpleNamespace(
+        daily_token_budget=10, amap_key="test-key",
+    ))
+    monkeypatch.setattr("app.services.usage.today_tokens", lambda: 10 if denial == "budget" else 0)
+    monkeypatch.setattr(city_dishes, "get_settings", lambda: SimpleNamespace(openai_api_key="fake"))
+    monkeypatch.setattr(city_dishes, "_client", lambda *args: pytest.fail("must not call model"))
+    monkeypatch.setattr(nearby, "fetch_location_label", lambda *args: "测试市")
+    monkeypatch.setattr("app.rate_limit.get_settings", lambda: SimpleNamespace(rate_limit_per_minute=1))
+    if denial == "rate":
+        # chat 与定位预热确实共用一个 IP 模型限流桶；偏好消息不调用模型。
+        assert client.post("/api/v1/chat", json={"message": "喜欢番茄"}).status_code == 200
+    if denial == "saturated":
+        monkeypatch.setattr(city_dishes, "_MAX_PREFETCH_WORKERS", 0)
+    session_id = client.post("/api/v1/decisions?mode=takeout").json()["session_id"]
+    for option in ("any", "any", "simple"):
+        assert client.post(f"/api/v1/decisions/{session_id}/answer?option={option}").status_code == 200
+    payload = {"city": "测试"} if endpoint == "city" else {"lat": 30.0, "lng": 120.0}
+    response = client.post(f"/api/v1/decisions/{session_id}/{endpoint}", json=payload)
+    assert response.status_code == 200
+    assert response.json()["selected_dish"]
+    assert response.json()["location_label"] == "测试市"
+    assert city_dishes.cached("测试市") == []
+    assert admitted == [False]
+    assert not city_dishes._inflight
+
+
+def test_nearby_filters_implicit_peanut_in_city_dish():
+    places = [{"dish": "宫保鸡丁饭", "region": "测试市"}]
+    assert choose(places, {}, ["花生"], []) is None
+    assert nearby.alternatives(places, {}, ["花生"], []) == []
 
 
 def test_locate_by_ip_skips_private_addresses():
@@ -196,7 +282,7 @@ def test_save_city_api_sets_location_label(client, monkeypatch):
         lambda: SimpleNamespace(daily_token_budget=0, amap_key="test-key"),
     )
     monkeypatch.setattr("app.services.city_dishes.cached", lambda label: [])
-    monkeypatch.setattr("app.services.city_dishes.prefetch", lambda label: None)
+    monkeypatch.setattr("app.services.city_dishes.prefetch", lambda label, **kwargs: None)
 
     started = client.post("/api/v1/decisions?mode=takeout")
     session_id = started.json()["session_id"]

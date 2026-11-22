@@ -13,6 +13,7 @@ import json
 import logging
 import threading
 import time
+from typing import Callable
 
 from openai import OpenAI
 
@@ -32,6 +33,7 @@ _NOISE_WORDS = ("双人餐", "单人餐", "套餐", "优惠券", "代金券", "�
 _TIMEOUT = 30.0  # 只在后台预热线程里跑，放宽换成功率
 # 缓存条目保鲜期：菜品结构变化慢，8 小时足够
 _TTL = 8 * 3600
+_MAX_PREFETCH_WORKERS = 2  # 每进程有界，无等待队列；饱和时用本地候选
 _cache: dict[str, tuple[float, list[dict]]] = {}
 _inflight: set[str] = set()
 _lock = threading.Lock()
@@ -140,6 +142,8 @@ def fetch_city_dishes(city: str, settings=None) -> list[dict]:
             duration_ms=int((time.monotonic() - started) * 1000),
             prompt_version=PROMPT_VERSION, failure_reason=failure,
         )
+    finally:
+        client.close()
 
     if dishes:
         with _lock:
@@ -160,29 +164,49 @@ def cached(city: str) -> list[dict]:
     return []
 
 
-def prefetch(city: str, settings=None) -> None:
-    """后台线程预热缓存，绝不阻塞调用方；同城市并发去重。"""
+def prefetch(city: str, settings=None, *, allow_model: Callable[[], bool]) -> bool:
+    """有界后台预热。调用方必须提供预算/限流准入，拒绝时静默用本地菜。
+
+    缓存命中、同城在途和容量饱和都不消耗准入额度；不创建无界等待队列。
+    allow_model 在请求线程执行，不把 Request / 数据库会话传入后台线程。
+    """
     key = _clean_city(city)
-    if not key:
-        return
+    settings = settings or get_settings()
+    if not key or not settings.openai_api_key:
+        return False
     now = time.monotonic()
     with _lock:
         hit = _cache.get(key)
-        if (hit and now - hit[0] < _TTL) or key in _inflight:
-            return
+        if ((hit and now - hit[0] < _TTL) or key in _inflight
+                or len(_inflight) >= _MAX_PREFETCH_WORKERS):
+            return False
         _inflight.add(key)
+
+    def release() -> None:
+        with _lock:
+            _inflight.discard(key)
 
     def _run() -> None:
         try:
-            fetch_city_dishes(city, settings)
+            fetch_city_dishes(key, settings)
+        except Exception:
+            logger.exception("city_dishes_prefetch_failed")
         finally:
-            with _lock:
-                _inflight.discard(key)
+            release()
 
-    threading.Thread(target=_run, daemon=True).start()
+    try:
+        if not allow_model():
+            release()
+            return False
+        threading.Thread(target=_run, daemon=True).start()
+    except Exception:
+        release()
+        logger.exception("city_dishes_prefetch_start_failed")
+        return False
+    return True
 
 
 def reset_cache() -> None:
     with _lock:
         _cache.clear()
-        _inflight.clear()
+        # 在途任务仍占用容量，不能因清缓存而绕过并发上限。

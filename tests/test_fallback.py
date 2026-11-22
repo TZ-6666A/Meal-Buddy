@@ -2,6 +2,11 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
+from app.services import decision
+from app.services.cook_lessons import CATALOG_INGREDIENTS, LOCAL_RECIPES, ingredient_evidence
+
 from app.schemas import Recipe, RecipeIngredient, RecommendationRequest
 from app.services.decision import expand_blocked, is_blocked, prefer_ingredients
 from app.services.meal_assistant import DietAgent
@@ -56,6 +61,94 @@ def test_egg_allergy_blocks_dishes_with_egg_in_the_name():
     assert is_blocked("番茄炒蛋", blocked)
     assert is_blocked("虾仁蒸蛋", blocked)
     assert not is_blocked("青椒肉丝", blocked)
+
+
+def test_cook_catalog_has_explicit_ingredient_evidence():
+    names = {name for name, *_ in decision.COOK_DISHES}
+    assert names <= LOCAL_RECIPES.keys() | CATALOG_INGREDIENTS.keys()
+    assert all(ingredient_evidence(name) for name in names)
+
+
+@pytest.mark.parametrize("allergen, forbidden", [
+    ("花生", {"宫保鸡丁"}),
+    ("鸡蛋", {"木须肉", "酸辣汤", "番茄炒蛋", "虾仁蒸蛋"}),
+    ("海鲜", {"蚝油生菜", "清蒸鲈鱼", "白灼虾"}),
+    ("大豆", {"芹菜炒香干", "麻婆豆腐", "京酱肉丝", "宫保鸡丁"}),
+    ("小麦", {"京酱肉丝", "宫保鸡丁"}),
+])
+def test_cook_ranking_filters_known_implicit_allergens(allergen, forbidden):
+    all_names = set(decision.candidates("cook", {"time": "60"}, ""))
+    assert forbidden <= all_names
+    names = set(decision.candidates("cook", {"time": "60"}, "", [allergen]))
+    assert names
+    assert not names & forbidden
+
+
+@pytest.mark.parametrize("allergen, dish", [
+    ("花生", "宫保鸡丁饭"), ("鸡蛋", "木须肉"),
+    ("牛奶", "奶油培根意面"), ("海鲜", "蚝油生菜"),
+])
+def test_known_allergens_share_filter_across_paths(allergen, dish):
+    assert is_blocked(dish, [allergen])
+    recipe = Recipe(name=dish, description="", prep_minutes=20,
+                    ingredients=[{"name": "黄瓜", "amount": "1 根"}], steps=["做熟"])
+    assert DietAgent._recipe_blocked(recipe, [allergen])
+
+
+@pytest.mark.parametrize("path", ["demo", "model", "failure"])
+@pytest.mark.parametrize("condition, name, ingredient", [
+    ("diabetes", "糖拌番茄", "糖"),
+    ("hypertension", "腊肉炒番茄", "腊肉"),
+])
+def test_health_rules_apply_to_model_and_fallback_pool(
+    client, fake_settings, monkeypatch, path, condition, name, ingredient,
+):
+    recipe = Recipe(name=name, description="", prep_minutes=5,
+                    ingredients=[{"name": "番茄", "amount": "1 个"},
+                                 {"name": ingredient, "amount": "少量"}], steps=["拌匀"])
+
+    async def fake_recipes(*args, **kwargs):
+        if path == "failure":
+            raise RuntimeError("offline test")
+        return "测试", [recipe]
+
+    monkeypatch.setattr(DietAgent, "_request_recipes", fake_recipes)
+    if path == "demo":
+        fake_settings.openai_api_key = ""
+    request = RecommendationRequest(ingredients=["番茄", ingredient], available_minutes=30,
+                                    condition=condition)
+    _, recipes, source = asyncio.run(DietAgent().recommend(request, [], []))
+    assert recipes
+    assert name not in {r.name for r in recipes}
+    assert all(not DietAgent._recipe_condition_conflicts(r, condition) for r in recipes)
+    assert source == {"demo": "demo", "model": "llm", "failure": "fallback"}[path]
+
+
+def test_demo_does_not_ban_sugar_without_condition():
+    request = RecommendationRequest(ingredients=["番茄"], available_minutes=15)
+    assert "糖拌番茄" in {r.name for r in DietAgent._demo(request, [])[1]}
+    request.condition = "diabetes"
+    assert "糖拌番茄" not in {r.name for r in DietAgent._demo(request, [])[1]}
+
+
+def test_health_rule_checks_actual_ingredients_and_steps():
+    assert decision.condition_conflicts("番茄冷盘", "diabetes", ["番茄", "白糖"])
+    assert decision.condition_conflicts("番茄冷盘", "diabetes", ["番茄"], ["加糖拌匀"])
+    assert not decision.condition_conflicts("无糖豆浆", "diabetes", ["黄豆", "水"])
+    assert decision.condition_conflicts("家常小炒", "hypertension", ["榨菜"])
+    annotated = Recipe(name="番茄冷盘", description="", prep_minutes=5,
+                       ingredients=[{"name": "糖（可选）", "amount": "少许"}], steps=["拌匀"])
+    assert DietAgent._recipe_condition_conflicts(annotated, "diabetes")
+
+
+def test_local_rule_fallback_keeps_health_constraints(monkeypatch):
+    monkeypatch.setattr(decision, "COOK_DISHES", [
+        ("可乐鸡翅", {"stir"}, 30, {"high-protein"}),
+        ("清蒸鲈鱼", {"steam"}, 30, {"low-fat"}),
+    ])
+    recipe = DietAgent._local_recipe(RecommendationRequest(condition="diabetes"), [], [])
+    assert recipe.name == "清蒸鲈鱼"
+    assert decision.condition_conflicts("酸菜鱼", "hypertension")
 
 
 def test_prefer_ingredients_keeps_all_candidates_but_puts_matches_first():

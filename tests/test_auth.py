@@ -85,6 +85,65 @@ def test_login_logout_flow(email_mode, client):
     assert ok2.status_code == 200
 
 
+def test_cookie_device_list_and_revoke(email_mode, client):
+    assert _register(email_mode, client).status_code == 201
+    other = _second_client()
+    assert other.post("/api/v1/auth/login", json={
+        "username": "xiaofan@qq.com", "password": "password123",
+    }).status_code == 200
+    listed = client.get("/api/v1/account/sessions")
+    assert listed.status_code == 200
+    devices = listed.json()
+    assert len(devices) == 2
+    current = next(item for item in devices if item["is_current"])
+    remote = next(item for item in devices if not item["is_current"])
+    other_devices = other.get("/api/v1/account/sessions").json()
+    assert next(item["id"] for item in other_devices if item["is_current"]) == remote["id"]
+    revoked = client.delete(f"/api/v1/account/sessions/{remote['id']}")
+    assert revoked.status_code == 200
+    assert revoked.json() == {"ok": True, "revoked_current_session": False}
+    assert other.get("/api/v1/auth/me").status_code == 401
+    assert client.get("/api/v1/auth/me").status_code == 200
+    own = client.delete(f"/api/v1/account/sessions/{current['id']}")
+    assert own.status_code == 200
+    assert own.json()["revoked_current_session"] is True
+    assert client.get("/api/v1/auth/me").status_code == 401
+
+
+def test_cookie_revoke_all_keeps_current_and_other_users(email_mode, client):
+    assert _register(email_mode, client).status_code == 201
+    other = _second_client()
+    assert other.post("/api/v1/auth/login", json={
+        "username": "xiaofan@qq.com", "password": "password123",
+    }).status_code == 200
+    stranger = _second_client()
+    assert _register(email_mode, stranger, email="other@qq.com").status_code == 201
+    foreign_id = stranger.get("/api/v1/account/sessions").json()[0]["id"]
+    assert client.delete(f"/api/v1/account/sessions/{foreign_id}").status_code == 404
+    result = client.post("/api/v1/account/sessions/revoke-all")
+    assert result.status_code == 200
+    assert result.json() == {"ok": True, "revoked_count": 1}
+    assert client.get("/api/v1/auth/me").status_code == 200
+    assert other.get("/api/v1/auth/me").status_code == 401
+    assert stranger.get("/api/v1/auth/me").status_code == 200
+    assert client.get("/api/v1/account/sessions").json()[0]["is_current"] is True
+
+
+def test_wrong_password_cannot_deactivate_fixture_account(email_mode, client):
+    assert _register(email_mode, client).status_code == 201
+    assert client.post("/api/v1/meals", json={"description": "番茄炒蛋"}).status_code == 201
+    response = client.post("/api/v1/account/deactivate", json={
+        "password": "wrong-password", "confirm": "DEACTIVATE",
+    })
+    assert response.status_code == 400
+    assert response.json()["detail"] == "密码不正确"
+    assert client.get("/api/v1/auth/me").status_code == 200
+    assert len(client.get("/api/v1/meals").json()) == 1
+    with client.testing_session() as session:
+        assert session.query(User).count() == 1
+        assert session.query(UserSession).count() == 1
+
+
 def test_disabled_user_cannot_login_or_use_session(email_mode, client):
     assert _register(email_mode, client).status_code == 201
     with client.testing_session() as session:

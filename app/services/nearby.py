@@ -6,7 +6,7 @@ import logging
 
 import httpx
 
-from app.services.decision import is_blocked
+from app.services.decision import is_blocked, takeout_condition_allows
 
 logger = logging.getLogger("fandazi.nearby")
 
@@ -124,10 +124,11 @@ def regional_places(location_label: str) -> list[dict]:
     ]
 
 
-def sources_with_matches(places: list[dict], answers: dict, blocked: list[str]) -> list[str]:
+def sources_with_matches(places: list[dict], answers: dict, blocked: list[str],
+                         condition: str = "") -> list[str]:
     sources = []
     for source in ("local", "nearby"):
-        if choose(places, answers, blocked, [], source=source):
+        if choose(places, answers, blocked, [], source=source, condition=condition):
             sources.append(source)
     return sources
 
@@ -184,7 +185,7 @@ def label_of(place: dict) -> str:
 
 
 def choose(places: list[dict], answers: dict, blocked: list[str], drawn: list[str],
-           source: str = "all") -> dict | None:
+           source: str = "all", condition: str = "") -> dict | None:
     """返回最近的一道符合口味和忌口的招牌菜。没有就返回 None。"""
     skipped = set(drawn or [])
     for place in places:
@@ -192,7 +193,8 @@ def choose(places: list[dict], answers: dict, blocked: list[str], drawn: list[st
             continue
         dish = str(place.get("dish") or "")
         shop = str(place.get("shop") or "")
-        if not dish or not _fits(dish, answers, place):
+        if (not dish or not _fits(dish, answers, place)
+                or not takeout_condition_allows(dish, condition)):
             continue
         if is_blocked(dish, blocked) or (shop and is_blocked(shop, blocked)):
             continue
@@ -219,7 +221,8 @@ def choose(places: list[dict], answers: dict, blocked: list[str], drawn: list[st
 
 
 def alternatives(places: list[dict], answers: dict, blocked: list[str],
-                 drawn: list[str], limit: int = 3, source: str = "all") -> list[str]:
+                 drawn: list[str], limit: int = 3, source: str = "all",
+                 condition: str = "") -> list[str]:
     names: list[str] = []
     skipped = set(drawn or [])
     for place in places:
@@ -227,7 +230,8 @@ def alternatives(places: list[dict], answers: dict, blocked: list[str],
             continue
         dish = str(place.get("dish") or "")
         shop = str(place.get("shop") or "")
-        if not dish or not _fits(dish, answers, place):
+        if (not dish or not _fits(dish, answers, place)
+                or not takeout_condition_allows(dish, condition)):
             continue
         if is_blocked(dish, blocked) or (shop and is_blocked(shop, blocked)):
             continue

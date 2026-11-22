@@ -22,7 +22,6 @@ from app.main import app
 from app.models import ChatMessage, DecisionSession, MealEntry, RecommendationFeedback
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "")
-MIGRATION_REVISION = "0001_initial_schema"
 
 
 def _assert_test_database(url: str) -> str:
@@ -121,16 +120,16 @@ def pg_client(pg_session_factory, monkeypatch):
 
 
 def test_migration_creates_full_schema(pg_engine):
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    root = _project_root()
+    config = Config(str(root / "alembic.ini"))
+    config.set_main_option("script_location", str(root / "migrations"))
+    expected_revisions = set(ScriptDirectory.from_config(config).get_heads())
     inspector = inspect(pg_engine)
     tables = set(inspector.get_table_names())
-    assert {
-        "meal_entries",
-        "pantry_items",
-        "preference_notes",
-        "decision_sessions",
-        "chat_messages",
-        "recommendation_feedback",
-    } <= tables
+    assert set(Base.metadata.tables) <= tables
 
     meal_columns = {column["name"] for column in inspector.get_columns("meal_entries")}
     assert {"updated_at", "created_at", "eaten_at"} <= meal_columns
@@ -145,8 +144,8 @@ def test_migration_creates_full_schema(pg_engine):
     assert {"ck_feedback_action", "ck_feedback_rating"} <= checks
 
     with pg_engine.connect() as connection:
-        version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar()
-    assert version == MIGRATION_REVISION
+        revisions = set(connection.execute(text("SELECT version_num FROM alembic_version")).scalars())
+    assert revisions == expected_revisions
 
 
 def test_meal_crud_roundtrip(pg_client):

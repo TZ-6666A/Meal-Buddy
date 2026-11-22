@@ -5,10 +5,19 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from unittest.mock import patch
 
-from app.db import Base, get_db
-from app.main import app
-from app.rate_limit import reset_rate_limits
+from app.config import Settings
+
+# 在 app.db / app.main 导入前隔离配置；fixture 阶段再补丁已经太晚。
+# model_construct 只取声明默认值，不读取 .env 或进程里的真实凭据。
+with patch("app.config.get_settings", return_value=Settings.model_construct(
+    database_url="sqlite://",
+    openai_base_url="http://127.0.0.1:1/v1",
+)):
+    from app.db import Base, get_db
+    from app.main import app
+    from app.rate_limit import reset_rate_limits
 
 
 @pytest.fixture()

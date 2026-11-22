@@ -20,11 +20,13 @@ from app.accounts import (
     email_send_cooldown_error,
     generate_email_code,
     hash_password,
+    hash_token,
     normalize_email,
     normalize_username,
     store_email_code,
     validate_credentials,
     validate_email,
+    verify_password,
 )
 from app.config import get_settings
 from app.db import get_db
@@ -185,8 +187,8 @@ def _liked_words(db: Session, user_id: int) -> list[str]:
 
 
 def _conflicting(topic: str, kind: str, db: Session, user_id: int) -> PreferenceNote | None:
-    """新偏好和已有偏好直接冲突时，返回旧的那条。"""
-    opposite = {"like": ("dislike", "avoid", "allergy"), "dislike": ("like",),
+    """只替换普通偏好；过敏硬约束必须由用户显式删除，不能被学习覆盖。"""
+    opposite = {"like": ("dislike", "avoid"), "dislike": ("like",),
                 "avoid": ("like",), "allergy": ("like",)}.get(kind, ())
     if not topic:
         return None
@@ -825,7 +827,7 @@ def _pick_choice(session: DecisionSession, blocked: list[str], drawn: list[str],
             session.mode, session.answers or {}, drawn, condition, blocked, recent
         )
     answers = session.answers or {}
-    picked = nearby.choose(places, answers, blocked, drawn, source="all")
+    picked = nearby.choose(places, answers, blocked, drawn, source="all", condition=condition)
     if picked:
         return picked["choice"]
     return decision.draw(session.mode, answers, drawn, condition, blocked, recent)
@@ -877,14 +879,18 @@ def _state(session: DecisionSession, db: Session, user_id: int, auto_draw: bool 
             )
         else:
             local_alts = nearby.alternatives(
-                places, session.answers or {}, filter_words, drawn, 3, source="all"
+                places, session.answers or {}, filter_words, drawn, 3, source="all",
+                condition=session.condition,
             )
             common_alts = decision.alternatives(
                 session.mode, session.answers or {}, drawn, session.condition,
                 filter_words, recent, 3, drawn[-1],
             )
             alts = list(dict.fromkeys(local_alts + common_alts))[:3]
-            picked = nearby.choose(places, session.answers or {}, filter_words, drawn[:-1], source="all")
+            picked = nearby.choose(
+                places, session.answers or {}, filter_words, drawn[:-1], source="all",
+                condition=session.condition,
+            )
             if picked and picked["choice"] == drawn[-1]:
                 reasons = picked["reasons"]
             else:
@@ -979,7 +985,21 @@ def start_decision(
     return _state(session, db, user.id)
 
 
-def _apply_location(session: DecisionSession, db: Session, user_id: int, location_label: str) -> DecisionState:
+def _allow_location_model(request: Request) -> bool:
+    """复用模型预算和 IP 限流；预热被拒不阻断本地定位推荐。"""
+    if _budget_exceeded():
+        return False
+    try:
+        limit_model_calls(request)
+    except HTTPException as exc:
+        if exc.status_code != 429:
+            raise
+        return False
+    return True
+
+
+def _apply_location(session: DecisionSession, db: Session, user_id: int,
+                    location_label: str, request: Request) -> DecisionState:
     """把定位结果写入会话并立即抽一次，供坐标与城市名两条路径复用。"""
     answers = dict(session.answers or {})
     answers["_location_label"] = location_label
@@ -987,7 +1007,7 @@ def _apply_location(session: DecisionSession, db: Session, user_id: int, locatio
     answers["_local_places"] = nearby.regional_places(location_label)
     answers["_ai_places"] = city_dishes.cached(location_label)
     # AI 日常菜在后台线程预热：模型慢时不拖住授权流程，下一轮抽签即可用
-    city_dishes.prefetch(location_label)
+    city_dishes.prefetch(location_label, allow_model=lambda: _allow_location_model(request))
     session.answers = answers
     session.drawn = []
     db.commit()
@@ -999,6 +1019,7 @@ def _apply_location(session: DecisionSession, db: Session, user_id: int, locatio
 def save_location(
     session_id: int,
     payload: GeoPoint,
+    request: Request,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> DecisionState:
@@ -1011,13 +1032,14 @@ def save_location(
     answers["_lat"] = payload.lat
     answers["_lng"] = payload.lng
     session.answers = answers
-    return _apply_location(session, db, user.id, location_label)
+    return _apply_location(session, db, user.id, location_label, request)
 
 
 @router.post("/decisions/{session_id}/city", response_model=DecisionState)
 def save_city(
     session_id: int,
     payload: CityPick,
+    request: Request,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> DecisionState:
@@ -1028,7 +1050,7 @@ def save_city(
     label = nearby.city_label(payload.city)
     if not label:
         raise HTTPException(status_code=422, detail="城市名不能为空")
-    return _apply_location(session, db, user.id, label)
+    return _apply_location(session, db, user.id, label, request)
 
 
 @router.get("/location/ip", response_model=IpLocation)

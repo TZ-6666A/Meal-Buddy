@@ -1,5 +1,8 @@
 """AI 城市日常菜层：解析校验、缓存与静默降级行为。"""
 from types import SimpleNamespace
+import threading
+
+import pytest
 
 from app.services import city_dishes
 
@@ -45,6 +48,9 @@ class _FakeClient:
     @property
     def completions(self):
         return self
+
+    def close(self):
+        pass
 
     def create(self, **kwargs):
         self.calls += 1
@@ -110,38 +116,107 @@ def test_fetch_skips_when_key_missing(monkeypatch):
     city_dishes.reset_cache()
 
 
-def test_prefetch_warms_cache_without_blocking(monkeypatch):
-    """prefetch 在后台线程预热缓存；cached 只读、未预热返回空。"""
-    import time as _time
+@pytest.fixture()
+def workers(monkeypatch):
+    """记录真实线程并 join，测试不靠 sleep/轮询猜完成时间。"""
+    real_thread = threading.Thread
+    threads = []
+
+    def tracked_thread(*args, **kwargs):
+        worker = real_thread(*args, **kwargs)
+        threads.append(worker)
+        return worker
 
     city_dishes.reset_cache()
-    assert city_dishes.cached("商洛市") == []  # 未预热：只读为空
+    monkeypatch.setattr(city_dishes.threading, "Thread", tracked_thread)
+    yield threads
+    for worker in threads:
+        worker.join(timeout=3)
+        assert not worker.is_alive()
+    assert not city_dishes._inflight
+    city_dishes.reset_cache()
 
+
+def test_prefetch_warms_cache_without_blocking(monkeypatch, workers):
     good = _FakeClient(content='[{"name": "砂锅土豆粉", "taste": "spicy", "staple": "noodle", "heaviness": "heavy"}]')
     monkeypatch.setattr(city_dishes, "_client", lambda settings=None: good)
-    city_dishes.prefetch("商洛市 · 商州区")
-    # 轮询等待后台线程完成（最多2秒）
-    deadline = _time.monotonic() + 2
-    while not city_dishes.cached("商洛市") and _time.monotonic() < deadline:
-        _time.sleep(0.05)
-    assert [d["dish"] for d in city_dishes.cached("商洛市 · 商州区")] == ["砂锅土豆粉"]
+    assert city_dishes.prefetch("商洛市 · 商州区", _settings(), allow_model=lambda: True)
+    workers[0].join(timeout=3)
+    assert [d["dish"] for d in city_dishes.cached("商洛市")] == ["砂锅土豆粉"]
     assert good.calls == 1
-
-    # 缓存保鲜期内重复 prefetch 不再调模型
-    city_dishes.prefetch("商洛市")
-    _time.sleep(0.2)
-    assert good.calls == 1
-    city_dishes.reset_cache()
+    assert not city_dishes.prefetch(
+        "商洛市", _settings(), allow_model=lambda: pytest.fail("cache hit must not consume quota"),
+    )
+    assert len(workers) == 1
 
 
-def test_prefetch_never_raises_on_model_failure(monkeypatch):
-    """后台预热失败只影响缓存，不向调用方抛异常。"""
-    import time as _time
+def test_prefetch_bounds_workers_and_deduplicates_city(monkeypatch, workers):
+    gate = threading.Event()
+    monkeypatch.setattr(city_dishes, "_MAX_PREFETCH_WORKERS", 2)
 
-    city_dishes.reset_cache()
-    broken = _FakeClient(error=RuntimeError("network down"))
-    monkeypatch.setattr(city_dishes, "_client", lambda settings=None: broken)
-    city_dishes.prefetch("北京市")  # 不应向调用方抛异常
-    _time.sleep(0.3)  # 等后台线程走完失败路径
+    def waiting_fetch(*args, **kwargs):
+        assert gate.wait(timeout=3)
+        return []
+
+    monkeypatch.setattr(city_dishes, "fetch_city_dishes", waiting_fetch)
+    admitted = []
+
+    def admit():
+        admitted.append(True)
+        return True
+
+    try:
+        assert city_dishes.prefetch("北京市 · 朝阳区", _settings(), allow_model=admit)
+        assert not city_dishes.prefetch("北京市 · 海淀区", _settings(), allow_model=admit)
+        assert city_dishes.prefetch("上海市", _settings(), allow_model=admit)
+        city_dishes.reset_cache()  # 清缓存也不能丢失在途容量
+        assert not city_dishes.prefetch("杭州市", _settings(), allow_model=admit)
+        assert len(workers) == len(admitted) == 2
+    finally:
+        gate.set()
+        for worker in workers:
+            worker.join(timeout=3)
+    assert not city_dishes._inflight
+    assert city_dishes.prefetch("杭州市", _settings(), allow_model=admit)
+
+
+@pytest.mark.parametrize("stage", ["client", "fetch"])
+def test_prefetch_releases_on_worker_exception(monkeypatch, workers, stage):
+    def broken(*args, **kwargs):
+        raise RuntimeError("offline test")
+
+    monkeypatch.setattr(city_dishes, "_client" if stage == "client" else "fetch_city_dishes", broken)
+    assert city_dishes.prefetch("北京市", _settings(), allow_model=lambda: True)
+    workers[0].join(timeout=3)
+    assert not city_dishes._inflight
     assert city_dishes.cached("北京市") == []
-    city_dishes.reset_cache()
+    # 同城可重试，不遗留 inflight 标记。
+    assert city_dishes.prefetch("北京市", _settings(), allow_model=lambda: True)
+
+
+@pytest.mark.parametrize("stage", ["denied", "admission_error", "thread_start"])
+def test_prefetch_releases_when_admission_or_start_fails(monkeypatch, stage):
+    def admit():
+        if stage == "admission_error":
+            raise RuntimeError("admission failed")
+        return stage != "denied"
+
+    class BrokenThread:
+        def __init__(self, **kwargs):
+            pass
+
+        def start(self):
+            raise RuntimeError("cannot start thread")
+
+    monkeypatch.setattr(city_dishes.threading, "Thread", BrokenThread)
+    assert not city_dishes.prefetch("北京市", _settings(), allow_model=admit)
+    assert not city_dishes._inflight
+
+
+def test_prefetch_without_key_does_not_consume_quota():
+    settings = _settings()
+    settings.openai_api_key = ""
+    assert not city_dishes.prefetch(
+        "北京市", settings, allow_model=lambda: pytest.fail("no key must not consume quota"),
+    )
+    assert not city_dishes._inflight

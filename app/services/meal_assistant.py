@@ -440,6 +440,7 @@ class DietAgent:
         for recipe in recipes:
             if (recipe.prep_minutes > request.available_minutes
                     or self._recipe_blocked(recipe, banned)
+                    or self._recipe_condition_conflicts(recipe, request.condition)
                     or not self._recipe_matches_available_ingredients(recipe, available)
                     or recipe.name in seen):
                 continue
@@ -643,6 +644,13 @@ class DietAgent:
             return False
         texts = [recipe.name] + [item.name for item in recipe.ingredients]
         return any(is_blocked(text, blocked) for text in texts)
+
+    @staticmethod
+    def _recipe_condition_conflicts(recipe: Recipe, condition: str) -> bool:
+        return decision.condition_conflicts(
+            recipe.name, condition,
+            [_ingredient_key(item.name) for item in recipe.ingredients], recipe.steps,
+        )
 
     @staticmethod
     def _recipe_matches_available_ingredients(
@@ -948,6 +956,7 @@ class DietAgent:
         recipes = [r for r in recipes
                    if r.prep_minutes <= request.available_minutes
                    and not DietAgent._recipe_blocked(r, banned)
+                   and not DietAgent._recipe_condition_conflicts(r, request.condition)
                    and DietAgent._recipe_matches_available_ingredients(r, available)]
         if available and not recipes:
             return (
