@@ -556,7 +556,8 @@ def _score(tastes: set[str], staple: str, heavy: str, want_taste: str, want_stap
 
 def ranked(mode: str, answers: dict[str, str], condition: str,
            blocked: list[str] | None = None, recent: list[str] | None = None,
-           exclude: set[str] | None = None) -> list[tuple[str, int]]:
+           exclude: set[str] | None = None,
+           feedback_weights: dict[str, int] | None = None) -> list[tuple[str, int]]:
     """返回 (菜名, 分数) 降序列表。忌口和近期记录在这里统一过滤。"""
     banned = expand_blocked(blocked)
     skip = exclude or set()
@@ -579,8 +580,9 @@ def ranked(mode: str, answers: dict[str, str], condition: str,
             score += 2 if need <= max(minutes - 15, 15) else 0
             if condition in COND_TAGS:
                 score += 2 if tags & COND_TAGS[condition] else -4
+            score += (feedback_weights or {}).get(name, 0)
             result.append((name, score))
-        result.sort(key=lambda item: -item[1])
+        result.sort(key=lambda item: (-item[1], item[0]))
         return result
 
     rows = SAFE_CATALOG[condition] if condition in SAFE_CATALOG else DISHES
@@ -595,8 +597,9 @@ def ranked(mode: str, answers: dict[str, str], condition: str,
         score = _score(tastes, staple, heavy, want_taste, want_staple, want_heavy)
         if condition in COND_TAGS:
             score += 2 if tags & COND_TAGS[condition] else -4
+        score += (feedback_weights or {}).get(name, 0)
         result.append((name, score))
-    result.sort(key=lambda item: -item[1])
+    result.sort(key=lambda item: (-item[1], item[0]))
     return result
 
 
@@ -624,12 +627,13 @@ def prefer_ingredients(
 
 
 def draw(mode: str, answers: dict[str, str], drawn: list[str], condition: str,
-         blocked: list[str] | None = None, recent: list[str] | None = None) -> str:
+         blocked: list[str] | None = None, recent: list[str] | None = None,
+         feedback_weights: dict[str, int] | None = None) -> str:
     """只在当前最高分档里抽；这一档抽完了自然退到下一档，忌口全程生效。"""
-    ranking = ranked(mode, answers, condition, blocked, recent, set(drawn or []))
+    ranking = ranked(mode, answers, condition, blocked, recent, set(drawn or []), feedback_weights)
     if not ranking:
         # 近期记录太多时放开“最近吃过”，但绝不放宽忌口
-        ranking = ranked(mode, answers, condition, blocked, None, set(drawn or []))
+        ranking = ranked(mode, answers, condition, blocked, None, set(drawn or []), feedback_weights)
     if not ranking:
         return ""
     best = ranking[0][1]
@@ -639,11 +643,11 @@ def draw(mode: str, answers: dict[str, str], drawn: list[str], condition: str,
 
 def alternatives(mode: str, answers: dict[str, str], drawn: list[str], condition: str,
                  blocked: list[str] | None = None, recent: list[str] | None = None,
-                 limit: int = 3, pick: str = "") -> list[str]:
+                 limit: int = 3, pick: str = "", feedback_weights: dict[str, int] | None = None) -> list[str]:
     """结果卡下方的备选：和主结果同档，换着看也不跑偏。"""
-    ranking = ranked(mode, answers, condition, blocked, recent, set(drawn or []))
+    ranking = ranked(mode, answers, condition, blocked, recent, set(drawn or []), feedback_weights)
     if len(ranking) < limit:
-        ranking = ranked(mode, answers, condition, blocked, None, set(drawn or []))
+        ranking = ranked(mode, answers, condition, blocked, None, set(drawn or []), feedback_weights)
     if pick and ranking:
         score_of = {name: score for name, score in ranking}
         target = score_of.get(pick, ranking[0][1])

@@ -185,10 +185,17 @@ def label_of(place: dict) -> str:
 
 
 def choose(places: list[dict], answers: dict, blocked: list[str], drawn: list[str],
-           source: str = "all", condition: str = "") -> dict | None:
+           source: str = "all", condition: str = "",
+           feedback_weights: dict[str, int] | None = None) -> dict | None:
     """返回最近的一道符合口味和忌口的招牌菜。没有就返回 None。"""
     skipped = set(drawn or [])
-    for place in places:
+    candidates = [
+        place for place in places
+        if source == "all" or place.get("source", "nearby") == source
+    ]
+    if feedback_weights:
+        candidates.sort(key=lambda place: -feedback_weights.get(label_of(place), 0))
+    for place in candidates:
         if source != "all" and place.get("source", "nearby") != source:
             continue
         dish = str(place.get("dish") or "")
@@ -222,10 +229,16 @@ def choose(places: list[dict], answers: dict, blocked: list[str], drawn: list[st
 
 def alternatives(places: list[dict], answers: dict, blocked: list[str],
                  drawn: list[str], limit: int = 3, source: str = "all",
-                 condition: str = "") -> list[str]:
+                 condition: str = "", feedback_weights: dict[str, int] | None = None) -> list[str]:
     names: list[str] = []
     skipped = set(drawn or [])
-    for place in places:
+    candidates = [
+        place for place in places
+        if source == "all" or place.get("source", "nearby") == source
+    ]
+    if feedback_weights:
+        candidates.sort(key=lambda place: -feedback_weights.get(label_of(place), 0))
+    for place in candidates:
         if source != "all" and place.get("source", "nearby") != source:
             continue
         dish = str(place.get("dish") or "")

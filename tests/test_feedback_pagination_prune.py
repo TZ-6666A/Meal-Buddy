@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 from app.models import ChatMessage, DecisionSession, MealEntry
+from app.services import decision
 
 
 def _drawn_session(client) -> tuple[int, str]:
@@ -38,6 +39,35 @@ def test_feedback_rejects_unknown_dish_and_updates_duplicate(client):
     with client.testing_session() as db:
         from app.models import RecommendationFeedback
         assert db.query(RecommendationFeedback).count() == 1
+
+
+def test_feedback_changes_ranking_without_overriding_safety_rules(client, dev_user_id):
+    with client.testing_session() as db:
+        session = DecisionSession(
+            user_id=dev_user_id, mode="takeout", drawn=["鸡肉盖饭", "牛肉面"], finished=True
+        )
+        db.add(session)
+        db.commit()
+        session_id = session.id
+
+    response = client.post(
+        f"/api/v1/decisions/{session_id}/feedback",
+        json={"dish_name": "鸡肉盖饭", "action": "reject"},
+    )
+    assert response.status_code == 200
+
+    with client.testing_session() as db:
+        from app.api import _feedback_weights
+        weights = _feedback_weights(db, dev_user_id)
+
+    answers = {"taste": "salty", "staple": "rice", "heaviness": "simple"}
+    baseline = dict(decision.ranked("takeout", answers, "", [], []))
+    weighted = decision.ranked("takeout", answers, "", [], [], feedback_weights=weights)
+    assert weights["鸡肉盖饭"] == -3
+    assert dict(weighted)["鸡肉盖饭"] == baseline["鸡肉盖饭"] - 3
+    assert all(name != "牛肉面" for name, _ in decision.ranked(
+        "takeout", answers, "", ["牛肉"], [], feedback_weights={"牛肉面": 6}
+    ))
 
 
 def test_explicit_dish_reactions_are_saved_to_taste(client, dev_user_id):
