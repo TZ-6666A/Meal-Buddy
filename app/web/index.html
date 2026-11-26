@@ -2092,22 +2092,64 @@
     const said = showSaid(message);
     busy = true; setMascot('thinking');
     try {
-      const res = await apiFetch(`${api}/chat`, {
+      const res = await apiFetch(`${api}/chat/stream`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message })
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || '对话服务出错');
-      if (data.reply) {
-        showReply(data.reply);
-        setMascotTemporarily('speaking', '我想到啦，给你说说', 2400);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.detail || '对话服务出错');
+      }
+      if (!res.body) throw new Error('没连上，稍后再试');
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '', replyWrap = null, replyBody = null, final = null;
+      const ensureBubble = () => {
+        if (replyWrap) return;
+        replyWrap = document.createElement('div');
+        replyWrap.className = 'reply';
+        replyBody = document.createElement('p');
+        replyBody.className = 'body';
+        replyWrap.appendChild(replyBody);
+        replyWrap.onclick = () => replyWrap.classList.toggle('open');
+        $('talk').appendChild(replyWrap);
+        trimTalk();
+      };
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const chunks = buffer.split('\n\n');
+        buffer = chunks.pop();
+        for (const chunk of chunks) {
+          const line = chunk.split('\n').find(l => l.startsWith('data:'));
+          if (!line) continue;
+          let evt;
+          try { evt = JSON.parse(line.slice(5).trim()); } catch { continue; }
+          if (evt.stage === 'delta' && evt.text) {
+            ensureBubble();
+            replyBody.textContent += evt.text;
+          } else if (evt.stage === 'done') final = evt;
+          else if (evt.stage === 'error') throw new Error(evt.message || '对话服务出错');
+        }
+      }
+      if (!final) throw new Error('没连上，稍后再试');
+      if (final.reply) {
+        // 校验不通过时后端会用降级回复覆盖已渲染的增量，这里以最终文本为准。
+        const text = final.reply.replace(/^我记着你之前的偏好（[^）]*）。?/, '');
+        if (text) {
+          ensureBubble();
+          replyBody.textContent = text;
+          setMascotTemporarily('speaking', '我想到啦，给你说说', 2400);
+        } else if (replyWrap) replyWrap.remove();
       } else {
         // 纯偏好陈述：只记进「我的口味」，聊天区不留痕迹。
         said.remove();
+        if (replyWrap) replyWrap.remove();
       }
-      if (data.learned && data.learned.length) {
+      if (final.learned && final.learned.length) {
         await loadPrefs();
-        flashToast(data.replaced && data.replaced.length ? '已更新我的口味' : '已记入我的口味');
+        flashToast(final.replaced && final.replaced.length ? '已更新我的口味' : '已记入我的口味');
       }
     } catch (err) {
       showReply(err.message || '没连上，稍后再试');

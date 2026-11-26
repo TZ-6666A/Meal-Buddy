@@ -186,6 +186,23 @@ def _liked_words(db: Session, user_id: int) -> list[str]:
     return words
 
 
+def _feedback_weights(db: Session, user_id: int) -> dict[str, int]:
+    rows = db.execute(
+        select(RecommendationFeedback.dish_name, RecommendationFeedback.action,
+               RecommendationFeedback.rating)
+        .join(DecisionSession, DecisionSession.id == RecommendationFeedback.session_id)
+        .where(DecisionSession.user_id == user_id)
+    )
+    weights: dict[str, int] = {}
+    action_weight = {"accept": 2, "eaten": 3, "reject": -3}
+    for dish_name, action, rating in rows:
+        score = action_weight[action]
+        if rating is not None:
+            score += rating - 3
+        weights[dish_name] = max(-6, min(6, weights.get(dish_name, 0) + score))
+    return weights
+
+
 def _conflicting(topic: str, kind: str, db: Session, user_id: int) -> PreferenceNote | None:
     """只替换普通偏好；过敏硬约束必须由用户显式删除，不能被学习覆盖。"""
     opposite = {"like": ("dislike", "avoid"), "dislike": ("like",),
@@ -791,6 +808,44 @@ async def chat(
     )
 
 
+@router.post("/chat/stream", dependencies=[Depends(limit_model_calls)])
+async def chat_stream(
+    payload: ChatRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)
+) -> StreamingResponse:
+    if _budget_exceeded():
+        raise HTTPException(status_code=429, detail="今天的模型额度用完了，明天再来。")
+    notes = _active_notes(db, user.id)
+    history, earlier_summary = _chat_context(db, user.id)
+
+    async def events():
+        async for kind, data in agent.chat_stream(payload.message, notes, history, earlier_summary):
+            if kind == "delta":
+                yield _sse({"stage": "delta", "text": data})
+                continue
+            created, replaced = _persist_learned(db, user.id, data.get("learned") or [])
+            reply = data.get("reply") or ""
+            if reply:
+                db.add(ChatMessage(user_id=user.id, role="user", content=payload.message))
+                db.add(ChatMessage(user_id=user.id, role="agent", content=reply))
+            db.commit()
+            for note in created:
+                db.refresh(note)
+            yield _sse({
+                "stage": "done",
+                "reply": reply,
+                "learned": [PreferenceRead.model_validate(n).model_dump(mode="json") for n in created],
+                "replaced": replaced[:3],
+                "source": data.get("source"),
+                "prompt_version": PROMPT_VERSION,
+            })
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @router.post("/cook-lessons", response_model=CookLesson,
              dependencies=[Depends(limit_model_calls)])
 async def cook_lesson(
@@ -820,17 +875,21 @@ def _nearby_places(session: DecisionSession) -> list | None:
 
 
 def _pick_choice(session: DecisionSession, blocked: list[str], drawn: list[str],
-                 recent: list[str], condition: str) -> str:
+                 recent: list[str], condition: str, feedback_weights: dict[str, int] | None = None) -> str:
     places = _nearby_places(session)
     if places is None:
         return decision.draw(
-            session.mode, session.answers or {}, drawn, condition, blocked, recent
+            session.mode, session.answers or {}, drawn, condition, blocked, recent,
+            feedback_weights,
         )
     answers = session.answers or {}
-    picked = nearby.choose(places, answers, blocked, drawn, source="all", condition=condition)
+    picked = nearby.choose(
+        places, answers, blocked, drawn, source="all", condition=condition,
+        feedback_weights=feedback_weights,
+    )
     if picked:
         return picked["choice"]
-    return decision.draw(session.mode, answers, drawn, condition, blocked, recent)
+    return decision.draw(session.mode, answers, drawn, condition, blocked, recent, feedback_weights)
 
 
 def _no_match_suggestion(location_label: str, answers: dict, has_location_data: bool) -> str:
@@ -854,6 +913,7 @@ def _state(session: DecisionSession, db: Session, user_id: int, auto_draw: bool 
     blocked = _blocked_words(db, user_id)
     filter_words = decision.expand_blocked(blocked)
     recent = _recent_meals(db, user_id)
+    feedback_weights = _feedback_weights(db, user_id)
     drawn = list(session.drawn or [])
     location_label = str((session.answers or {}).get("_location_label") or "")
     location_data_version = int((session.answers or {}).get("_location_data_version") or 0)
@@ -861,7 +921,7 @@ def _state(session: DecisionSession, db: Session, user_id: int, auto_draw: bool 
     step = decision.next_step(session.mode, session.answers or {})
 
     if step is None and not drawn and auto_draw:
-        choice = _pick_choice(session, filter_words, [], recent, session.condition)
+        choice = _pick_choice(session, filter_words, [], recent, session.condition, feedback_weights)
         if choice:
             drawn = [choice]
             session.drawn = drawn
@@ -872,7 +932,7 @@ def _state(session: DecisionSession, db: Session, user_id: int, auto_draw: bool 
         if places is None:
             alts = decision.alternatives(
                 session.mode, session.answers or {}, drawn, session.condition,
-                filter_words, recent, 3, drawn[-1],
+                filter_words, recent, 3, drawn[-1], feedback_weights,
             )
             reasons = decision.explain(
                 session.mode, session.answers or {}, drawn[-1], session.condition, blocked, recent
@@ -880,16 +940,16 @@ def _state(session: DecisionSession, db: Session, user_id: int, auto_draw: bool 
         else:
             local_alts = nearby.alternatives(
                 places, session.answers or {}, filter_words, drawn, 3, source="all",
-                condition=session.condition,
+                condition=session.condition, feedback_weights=feedback_weights,
             )
             common_alts = decision.alternatives(
                 session.mode, session.answers or {}, drawn, session.condition,
-                filter_words, recent, 3, drawn[-1],
+                filter_words, recent, 3, drawn[-1], feedback_weights,
             )
             alts = list(dict.fromkeys(local_alts + common_alts))[:3]
             picked = nearby.choose(
                 places, session.answers or {}, filter_words, drawn[:-1], source="all",
-                condition=session.condition,
+                condition=session.condition, feedback_weights=feedback_weights,
             )
             if picked and picked["choice"] == drawn[-1]:
                 reasons = picked["reasons"]
@@ -1168,7 +1228,7 @@ def _redraw(session_id: int, user: User, db: Session) -> DecisionState:
         return _state(session, db, user.id)
     choice = _pick_choice(
         session, decision.expand_blocked(_blocked_words(db, user.id)), drawn,
-        _recent_meals(db, user.id), session.condition
+        _recent_meals(db, user.id), session.condition, _feedback_weights(db, user.id)
     )
     if not choice:
         return _state(session, db, user.id)

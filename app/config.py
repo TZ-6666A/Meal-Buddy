@@ -1,10 +1,23 @@
 from functools import lru_cache
 from pathlib import Path
+import os
+import re
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _normalize_no_proxy() -> None:
+    # httpx 0.28.1 对 NO_PROXY 中带方括号的 IPv6（如 [::1]）会抛 InvalidURL，裸形式语义相同。
+    for key in ("NO_PROXY", "no_proxy"):
+        value = os.environ.get(key)
+        if value and "[" in value:
+            os.environ[key] = re.sub(r"\[([0-9a-fA-F:]+)\]", r"\1", value)
+
+
+_normalize_no_proxy()
 
 
 class Settings(BaseSettings):

@@ -7,6 +7,7 @@ import logging
 import re
 import time
 from threading import Lock
+from types import SimpleNamespace
 from typing import Awaitable, Callable
 
 from openai import AsyncOpenAI
@@ -236,9 +237,7 @@ async def close_clients() -> None:
 
 
 class DietAgent:
-    async def chat(self, message: str, notes: list[str],
-                   history: list[dict[str, str]] | None = None,
-                   earlier_summary: str = "") -> tuple[str, list[dict[str, str]], str]:
+    def _rule_reply(self, message: str) -> tuple[str, list[dict[str, str]], str] | None:
         learned = self._rule_extract(message)
         if learned:
             # 纯偏好陈述：只记进「我的口味」，不占用对话气泡。
@@ -252,6 +251,15 @@ class DietAgent:
                 learned,
                 "rule",
             )
+        return None
+
+    async def chat(self, message: str, notes: list[str],
+                   history: list[dict[str, str]] | None = None,
+                   earlier_summary: str = "") -> tuple[str, list[dict[str, str]], str]:
+        rule = self._rule_reply(message)
+        if rule is not None:
+            return rule
+        learned = self._rule_extract(message)
         settings = get_settings()
         if not settings.openai_api_key:
             logger.warning(
@@ -264,6 +272,68 @@ class DietAgent:
         if polished:
             return polished, learned, "llm"
         return self._fallback(message), learned, "fallback"
+
+    async def chat_stream(self, message: str, notes: list[str],
+                          history: list[dict[str, str]] | None = None,
+                          earlier_summary: str = ""):
+        """真流式聊天：yield ("delta", text) 增量，最后 yield ("final", dict)。
+
+        增量边发边缓冲；整段校验不通过时 final.reply 换成降级回复，
+        前端以 final.reply 为准覆盖已渲染的增量。
+        """
+        rule = self._rule_reply(message)
+        if rule is not None:
+            reply, learned, source = rule
+            yield "final", {"reply": reply, "learned": learned, "source": source}
+            return
+        learned = self._rule_extract(message)
+        settings = get_settings()
+        if not settings.openai_api_key:
+            logger.warning(
+                "chat_llm_unconfigured model=%s prompt_version=%s",
+                settings.openai_model,
+                PROMPT_VERSION,
+            )
+            yield "final", {"reply": self._fallback(message), "learned": learned, "source": "fallback"}
+            return
+        client = get_chat_client(settings)
+        messages = build_chat_messages(message, notes, history, earlier_summary)
+        started = time.perf_counter()
+        buffer = ""
+        usage_info = None
+        failure_reason = ""
+        try:
+            stream = await client.chat.completions.create(
+                model=settings.openai_model,
+                temperature=0.5,
+                max_tokens=160,
+                stream=True,
+                stream_options={"include_usage": True},
+                **_reasoning_effort_params(settings),
+                messages=messages,
+            )
+            async for chunk in stream:
+                if getattr(chunk, "usage", None) is not None:
+                    usage_info = chunk.usage
+                for choice in getattr(chunk, "choices", None) or []:
+                    delta = getattr(getattr(choice, "delta", None), "content", None)
+                    if delta:
+                        buffer += delta
+                        yield "delta", delta
+            reply = buffer.strip()
+            if not reply or len(reply) > 400 or "过敏" in reply and "过敏" not in message:
+                failure_reason = "invalid_reply"
+        except Exception as exc:
+            logger.exception("chat_llm_failed model=%s prompt_version=%s",
+                             settings.openai_model, PROMPT_VERSION)
+            failure_reason = type(exc).__name__
+        ok = not failure_reason
+        _record(SimpleNamespace(usage=usage_info), "chat", settings, ok=ok,
+                started=started, failure_reason=failure_reason)
+        if ok:
+            yield "final", {"reply": reply, "learned": learned, "source": "llm"}
+        else:
+            yield "final", {"reply": self._fallback(message), "learned": learned, "source": "fallback"}
 
     async def _polish(self, message: str, notes: list[str],
                       history: list[dict[str, str]] | None = None,
